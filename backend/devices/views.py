@@ -99,3 +99,9 @@ def energy_daily(request):
     if device_id:
         logs = logs.filter(device_id=device_id)
     return Response(EnergyLogSerializer(logs, many=True).data)
+
+@api_view(['GET'])
+def access_log_list(request):
+    """GET /api/access/log/ — recent access attempts, most recent first."""
+    logs = AccessLog.objects.all()[:50]
+    return Response(AccessLogSerializer(logs, many=True).data)
