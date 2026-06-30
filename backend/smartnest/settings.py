@@ -126,3 +126,8 @@ SMARTNEST_CONFIG = {
     "WEBSOCKET_GROUP_ALERTS": "alerts",
     "DEVICE_OFFLINE_AFTER_SECONDS": 90,
 }
+
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    ""
+).split(",") if os.getenv("CSRF_TRUSTED_ORIGINS") else []
