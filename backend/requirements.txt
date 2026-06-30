@@ -1,5 +1,5 @@
 # Core
-Django==5.2.8python -c "import django; print(django.get_version())"
+Django==5.2.8
 
 djangorestframework==3.15.1
 python-dotenv==1.0.1
