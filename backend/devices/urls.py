@@ -7,5 +7,6 @@ urlpatterns = [
     path('commands/pending/', views.pending_commands, name='command-pending'),
     path('commands/ack/', views.ack_command, name='command-ack'),
     path('access/verify/', views.verify_access, name='access-verify'),
+    path('access/log/', views.access_log_list, name='access-log'),
     path('energy/daily/', views.energy_daily, name='energy-daily'),
 ]
