@@ -4,7 +4,7 @@ import { devicesApi, unwrapList } from '../api/client'
 import SensorCard from '../components/SensorCard'
 import AlertBanner from '../components/AlertBanner'
 
-const SENSOR_ORDER = ['temperature', 'humidity', 'gas', 'light', 'distance']
+const SENSOR_ORDER = ['temperature', 'humidity', 'gas_mq2', 'light', 'distance']
 
 function Dashboard() {
   const { readings, loading, isConnected } = useSensors()

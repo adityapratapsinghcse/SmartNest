@@ -3,7 +3,7 @@ import { TEMP_WARNING_C, TEMP_DANGER_C, GAS_WARNING_PPM, GAS_DANGER_PPM } from '
 const SENSOR_META = {
   temperature: { label: 'Temperature', unit: '°C' },
   humidity: { label: 'Humidity', unit: '%' },
-  gas: { label: 'Gas (MQ-2)', unit: 'ppm' },
+  gas_mq2: { label: 'Gas (MQ-2)', unit: 'ppm' },
   light: { label: 'Light Level', unit: 'lux' },
   distance: { label: 'Distance', unit: 'cm' },
 }
@@ -15,7 +15,7 @@ function getStatus(sensorType, value) {
     if (value > TEMP_WARNING_C) return 'warning'
     return 'safe'
   }
-  if (sensorType === 'gas') {
+  if (sensorType === 'gas_mq2') {
     if (value > GAS_DANGER_PPM) return 'danger'
     if (value > GAS_WARNING_PPM) return 'warning'
     return 'safe'

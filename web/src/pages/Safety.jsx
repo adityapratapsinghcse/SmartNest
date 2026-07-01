@@ -35,7 +35,7 @@ function Safety() {
       .finally(() => setMlLoading(false))
   }, [])
 
-  const gasValue = readings.gas?.value
+  const gasValue = readings.gas_mq2?.value
   const gasStatus = gasValue > GAS_DANGER_PPM ? 'danger' : gasValue > GAS_WARNING_PPM ? 'warning' : 'safe'
 
   return (
@@ -64,7 +64,7 @@ function Safety() {
             <span className="text-base text-ink-muted ml-1">ppm</span>
           </div>
           <p className="font-mono text-[10px] text-ink-muted mt-3">
-            UPDATED {readings.gas?.timestamp ? new Date(readings.gas.timestamp).toLocaleTimeString() : '—'}
+            UPDATED {readings.gas_mq2?.timestamp ? new Date(readings.gas_mq2.timestamp).toLocaleTimeString() : '—'}
           </p>
         </div>
 
