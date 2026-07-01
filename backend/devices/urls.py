@@ -9,4 +9,5 @@ urlpatterns = [
     path('access/verify/', views.verify_access, name='access-verify'),
     path('access/log/', views.access_log_list, name='access-log'),
     path('energy/daily/', views.energy_daily, name='energy-daily'),
+    path('register-token/', views.register_fcm_token, name='register-fcm-token'),
 ]

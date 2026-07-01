@@ -105,3 +105,27 @@ def access_log_list(request):
     """GET /api/access/log/ — recent access attempts, most recent first."""
     logs = AccessLog.objects.all()[:50]
     return Response(AccessLogSerializer(logs, many=True).data)
+
+@api_view(['POST'])
+def register_fcm_token(request):
+    """
+    POST /api/devices/register-token/
+    Body: {"device_id": 1, "fcm_token": "..."}
+    For a single-home project, we just attach the token to Device id=1
+    (or whichever device the phone represents) so any alert push goes
+    to every registered phone.
+    """
+    device_id = request.data.get("device_id", 1)
+    fcm_token = request.data.get("fcm_token")
+
+    if not fcm_token:
+        return Response({"error": "fcm_token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    device, _ = Device.objects.get_or_create(
+        id=device_id,
+        defaults={"name": "SmartNest Hub", "type": "hub", "location": "home"}
+    )
+    device.fcm_token = fcm_token
+    device.save(update_fields=["fcm_token"])
+
+    return Response({"status": "registered"}, status=status.HTTP_200_OK)

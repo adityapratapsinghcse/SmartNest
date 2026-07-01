@@ -17,6 +17,7 @@ class Device(models.Model):
     location = models.CharField(max_length=100, blank=True)
     is_online = models.BooleanField(default=True)
     last_seen = models.DateTimeField(auto_now=True)
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         ordering = ['name']
