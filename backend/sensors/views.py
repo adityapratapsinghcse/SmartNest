@@ -6,18 +6,50 @@ from devices.models import Device
 from .models import SensorReading
 from .serializers import SensorReadingSerializer, SensorReadingDetailSerializer
 from services.sensor_service import SensorService
+from services.alert_service import AlertService
 
 
 @api_view(['POST'])
 def receive_sensor_data(request):
     """
     POST /api/sensors/data/
-    ESP32 calls this every time it has a fresh reading.
-    Body: { "device": 1, "sensor_type": "temperature", "value": 28.5, "unit": "C" }
+    ESP32 posts one reading at a time.
+    After saving, runs threshold check and creates an Alert if needed.
     """
     serializer = SensorReadingSerializer(data=request.data)
     if serializer.is_valid():
         reading = SensorService.process_reading(serializer.validated_data)
+
+        # Threshold check — creates Alert (and triggers WebSocket + FCM) if exceeded.
+        # Falls back gracefully if check_thresholds returns None (normal reading).
+        breach = SensorService.check_thresholds(reading)
+        if breach:
+            sensor = breach['exceeded']
+            value  = breach['value']
+
+            severity_map = {
+                'temperature': 'high',
+                'gas_mq2':     'critical',
+                'gas_mq7':     'critical',
+            }
+            type_map = {
+                'temperature': 'anomaly',
+                'gas_mq2':     'gas_leak',
+                'gas_mq7':     'co_detected',
+            }
+            message_map = {
+                'temperature': f'High temperature detected: {value:.1f}°C (threshold 35°C)',
+                'gas_mq2':     f'Gas/smoke detected by MQ-2: {value:.0f} ppm (threshold 700)',
+                'gas_mq7':     f'CO detected by MQ-7: {value:.0f} ppm (threshold 450)',
+            }
+
+            AlertService.create_alert_if_not_recent(
+                alert_type=type_map.get(sensor, 'system'),
+                severity=severity_map.get(sensor, 'medium'),
+                message=message_map.get(sensor, f'{sensor} threshold exceeded: {value}'),
+                within_minutes=5,
+            )
+
         return Response(SensorReadingSerializer(reading).data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -40,19 +72,21 @@ def latest_readings(request):
 
 @api_view(['GET'])
 def reading_history(request):
-    """GET /api/sensors/history/?sensor_type=temperature&device=1&limit=50 — for charts."""
+    """GET /api/sensors/history/?sensor_type=temperature&device=1&limit=50"""
     sensor_type = request.query_params.get('sensor_type')
-    device_id = request.query_params.get('device')
-    limit = int(request.query_params.get('limit', 50))
+    device_id   = request.query_params.get('device')
+    limit       = int(request.query_params.get('limit', 50))
 
     if not sensor_type:
-        return Response({'error': 'sensor_type query param is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {'error': 'sensor_type query param is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     readings_qs = SensorReading.objects.filter(sensor_type=sensor_type)
     if device_id:
         readings_qs = readings_qs.filter(device_id=device_id)
 
     readings = list(readings_qs.order_by('-timestamp')[:limit])
-    readings.reverse()  # oldest first, so charts draw left-to-right correctly
-
+    readings.reverse()
     return Response(SensorReadingDetailSerializer(readings, many=True).data)
