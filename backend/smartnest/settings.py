@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
@@ -131,3 +132,14 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
     ""
 ).split(",") if os.getenv("CSRF_TRUSTED_ORIGINS") else []
+
+FCM_PROJECT_ID = os.environ.get("FCM_PROJECT_ID", "")
+FCM_SERVICE_ACCOUNT_PATH = "/tmp/fcm_service_account.json"
+
+_fcm_json = os.environ.get("FCM_SERVICE_ACCOUNT_JSON")
+if _fcm_json:
+    try:
+        with open(FCM_SERVICE_ACCOUNT_PATH, "w") as f:
+            f.write(_fcm_json)
+    except Exception as e:
+        print(f"[FCM] Could not write service account file: {e}")
