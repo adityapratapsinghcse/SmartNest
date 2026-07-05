@@ -26,8 +26,11 @@ BOOLEAN_FIELD_MAP = {
     'window_open':        'window',
     'flame_detected':     'flame',
     'water_leak':         'water',
-    'is_dark':            None,  # is_dark is derived context, not stored separately - skip
+    'is_dark':            None,
     'vibration_detected': 'vibration',
+    'light_on':           'light_relay',
+    'fan_on':             'fan_relay',
+    'cutoff_on':          'cutoff_relay',
 }
 
 

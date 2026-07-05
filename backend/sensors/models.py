@@ -14,6 +14,9 @@ class SensorReading(models.Model):
         ('current', 'ACS712 Current'),
         ('light', 'LDR Light Level'),
         ('vibration', 'MPU6050 Vibration'),
+        ('light_relay', 'Light Relay State'),
+        ('fan_relay', 'Fan Relay State'),
+        ('cutoff_relay', 'Cutoff Relay State'),
     ]
 
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='readings')

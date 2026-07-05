@@ -11,11 +11,7 @@ class SensorReadingSerializer(serializers.ModelSerializer):
 
 
 class SensorBulkIngestSerializer(serializers.Serializer):
-    """
-    Matches the exact JSON shape your ESP32 already sends from
-    buildSensorJSON() in Step 1.12 - one POST creates multiple
-    SensorReading rows in one go.
-    """
+    device_id = serializers.IntegerField(required=False)
     temperature = serializers.FloatField(required=False)
     humidity = serializers.FloatField(required=False)
     distance_cm = serializers.FloatField(required=False)
@@ -28,3 +24,7 @@ class SensorBulkIngestSerializer(serializers.Serializer):
     light_percent = serializers.FloatField(required=False)
     is_dark = serializers.BooleanField(required=False)
     vibration_detected = serializers.BooleanField(required=False)
+    vibration_deviation = serializers.FloatField(required=False)
+    light_on = serializers.BooleanField(required=False)
+    fan_on = serializers.BooleanField(required=False)
+    cutoff_on = serializers.BooleanField(required=False)
