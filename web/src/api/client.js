@@ -7,7 +7,6 @@ const client = axios.create({
   },
 });
 
-// Attach the auth token to every request automatically, once logged in
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('smartnest_token');
   if (token) {

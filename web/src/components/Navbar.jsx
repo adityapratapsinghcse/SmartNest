@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, ShieldCheck, Thermometer, AlertTriangle, Zap, Menu, X } from 'lucide-react';
+import { LogOut } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -13,7 +15,8 @@ const navItems = [
 export default function Navbar() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Auto-close drawer if the window is resized back to desktop width
+  const { logout, householdName } = useAuth();
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth > 768) setDrawerOpen(false);
@@ -24,7 +27,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Top bar - always visible, on every screen size */}
       <header className="sn-topbar">
         <button
           className="sn-hamburger"
@@ -39,7 +41,6 @@ export default function Navbar() {
           <span className="sn-brand">SMARTNEST</span>
         </div>
 
-        {/* Horizontal links - visible on web, hidden on phone via CSS */}
         <nav className="sn-toplinks">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -53,9 +54,14 @@ export default function Navbar() {
             </NavLink>
           ))}
         </nav>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="label-eyebrow">{householdName}</span>
+          <button className="sn-hamburger" onClick={logout} aria-label="Logout" style={{ display: 'flex' }}>
+            <LogOut size={18} />
+          </button>
+        </div>
       </header>
 
-      {/* Backdrop + slide-in drawer - only relevant/visible on phone widths */}
       <div
         className={`sn-backdrop${drawerOpen ? ' sn-backdrop-visible' : ''}`}
         onClick={() => setDrawerOpen(false)}
@@ -70,7 +76,7 @@ export default function Navbar() {
             <X size={22} />
           </button>
         </div>
-        <div className="label-eyebrow" style={{ padding: '0 16px', margin: '8px 0', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', fontWeight: 'bold' }}>
+        <div className="label-eyebrow" style={{ padding: '0 16px', margin: '8px 0' }}>
           Control Panel
         </div>
         <nav className="sn-drawerlinks">

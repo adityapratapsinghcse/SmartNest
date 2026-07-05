@@ -1,78 +1,80 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Lock, User, Home } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 export default function Login() {
+  const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [householdName, setHouseholdName] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { login, register } = useAuth();
   const navigate = useNavigate();
 
-  async function handleSubmit(e) {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setBusy(true);
     try {
-      const { data } = await client.post('/api/auth/login/', { username, password });
-      localStorage.setItem('smartnest_token', data.token);
-      
-      const { data: households } = await client.get('/api/auth/my-households/');
-      if (!households || households.length === 0) {
-        throw new Error('No household linked to this account.');
+      if (mode === 'login') {
+        await login(username, password);
+      } else {
+        await register(username, email, password, householdName);
       }
-      // First household for now — swap for a picker once multi-household UI exists
-      localStorage.setItem('householdId', households[0].id);
-      localStorage.setItem('householdName', households[0].name);
-
-      navigate('/dashboard');
+      navigate('/');
     } catch (err) {
-      setError(
-        err.response?.data?.detail || err.message || 'Login failed. Check your credentials.'
-      );
+      setError(err.response?.data?.error || 'Something went wrong. Check your details and try again.');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  }
+  };
 
   return (
-    <div className="auth-screen">
-      <div className="auth-panel panel-card">
-        <div className="auth-brand">
-          <span className="auth-brand__dot" />
-          <span className="label-eyebrow">SMARTNEST</span>
+    <div className="sn-login-wrap">
+      <div className="ui-panel ui-panel-accent sn-login-card">
+        <div className="sn-login-brand">
+          <div className="sn-brand-dot" />
+          <span className="sn-brand">SMARTNEST</span>
         </div>
-        <h1 className="auth-title">Control Panel Access</h1>
-        <p className="auth-subtitle">Sign in to arm, monitor, and manage your home.</p>
+        <p className="sn-page-subtitle" style={{ marginBottom: 24 }}>
+          {mode === 'login' ? 'Sign in to your control panel' : 'Create your household'}
+        </p>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <label className="auth-field">
-            <span className="label-eyebrow">Username</span>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-            />
+        <form onSubmit={handleSubmit} className="sn-login-form">
+          <label className="sn-login-label">
+            <User size={15} /> Username
           </label>
-          <label className="auth-field">
-            <span className="label-eyebrow">Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
+          <input className="sn-login-input" value={username} onChange={(e) => setUsername(e.target.value)} required />
+
+          {mode === 'register' && (
+            <>
+              <label className="sn-login-label">Email</label>
+              <input className="sn-login-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label className="sn-login-label"><Home size={15} /> Household Name</label>
+              <input className="sn-login-input" value={householdName} onChange={(e) => setHouseholdName(e.target.value)} placeholder="e.g. My Home" required />
+            </>
+          )}
+
+          <label className="sn-login-label">
+            <Lock size={15} /> Password
           </label>
+          <input className="sn-login-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
 
-          {error && <div className="auth-error">{error}</div>}
+          {error && <p className="sn-login-error">{error}</p>}
 
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Connecting…' : 'Unlock Dashboard'}
+          <button className="sn-unlock-btn" style={{ width: '100%', marginTop: 8 }} disabled={busy}>
+            {busy ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+
+        <button className="sn-login-switch" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+          {mode === 'login' ? "Don't have an account? Register" : 'Already have an account? Sign in'}
+        </button>
       </div>
     </div>
   );

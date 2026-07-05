@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -7,24 +8,37 @@ import Climate from './pages/Climate';
 import Safety from './pages/Safety';
 import Energy from './pages/Energy';
 
-function RequireAuth({ children }) {
-  return localStorage.getItem('token') ? children : <Navigate to="/login" replace />;
-}
-
-export default function App() {
-  const isLoggedIn = !!localStorage.getItem('token');
+function ProtectedLayout({ children }) {
+  const { token, loading } = useAuth();
+  if (loading) return <div className="sn-page-loading">Loading…</div>;
+  if (!token) return <Navigate to="/login" replace />;
   return (
-    <>
-      {isLoggedIn && <Navbar />}
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-        <Route path="/security" element={<RequireAuth><Security /></RequireAuth>} />
-        <Route path="/climate" element={<RequireAuth><Climate /></RequireAuth>} />
-        <Route path="/safety" element={<RequireAuth><Safety /></RequireAuth>} />
-        <Route path="/energy" element={<RequireAuth><Energy /></RequireAuth>} />
-        <Route path="*" element={<Navigate to={isLoggedIn ? '/dashboard' : '/login'} replace />} />
-      </Routes>
-    </>
+    <div>
+      <Navbar />
+      <main style={{ padding: '24px', boxSizing: 'border-box' }}>{children}</main>
+    </div>
   );
 }
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+      <Route path="/security" element={<ProtectedLayout><Security /></ProtectedLayout>} />
+      <Route path="/climate" element={<ProtectedLayout><Climate /></ProtectedLayout>} />
+      <Route path="/safety" element={<ProtectedLayout><Safety /></ProtectedLayout>} />
+      <Route path="/energy" element={<ProtectedLayout><Energy /></ProtectedLayout>} />
+    </Routes>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
+}
+
+export default App;
