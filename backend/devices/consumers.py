@@ -1,42 +1,55 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from accounts.models import Membership
+
+
+@database_sync_to_async
+def user_belongs_to_household(user, household_id):
+    if user is None or not user.is_authenticated:
+        return False
+    return Membership.objects.filter(user=user, household_id=household_id).exists()
 
 
 class SensorConsumer(AsyncWebsocketConsumer):
-    """
-    ws://domain/ws/sensors/<household_id>/
-    Every browser/mobile client viewing a household's dashboard connects here.
-    """
-
     async def connect(self):
         self.household_id = self.scope['url_route']['kwargs']['household_id']
-        self.group_name = f"sensors_{self.household_id}"
+        user = self.scope.get('user')
 
+        allowed = await user_belongs_to_household(user, self.household_id)
+        if not allowed:
+            await self.close(code=4401)  # custom code: unauthorized
+            return
+
+        self.group_name = f"sensors_{self.household_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
-    # Called when something sends a message to this group (from sensors/views.py)
     async def sensor_update(self, event):
         await self.send(text_data=json.dumps(event['data']))
 
 
 class AlertConsumer(AsyncWebsocketConsumer):
-    """
-    ws://domain/ws/alerts/<household_id>/
-    """
-
     async def connect(self):
         self.household_id = self.scope['url_route']['kwargs']['household_id']
-        self.group_name = f"alerts_{self.household_id}"
+        user = self.scope.get('user')
 
+        allowed = await user_belongs_to_household(user, self.household_id)
+        if not allowed:
+            await self.close(code=4401)
+            return
+
+        self.group_name = f"alerts_{self.household_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def alert_update(self, event):
         await self.send(text_data=json.dumps(event['data']))

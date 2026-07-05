@@ -1,0 +1,93 @@
+import { useState, useEffect } from 'react';
+import { NavLink } from 'react-router-dom';
+import { LayoutDashboard, ShieldCheck, Thermometer, AlertTriangle, Zap, Menu, X } from 'lucide-react';
+
+const navItems = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/security', label: 'Security', icon: ShieldCheck },
+  { to: '/climate', label: 'Climate', icon: Thermometer },
+  { to: '/safety', label: 'Safety', icon: AlertTriangle },
+  { to: '/energy', label: 'Energy', icon: Zap },
+];
+
+export default function Navbar() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Auto-close drawer if the window is resized back to desktop width
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 768) setDrawerOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return (
+    <>
+      {/* Top bar - always visible, on every screen size */}
+      <header className="sn-topbar">
+        <button
+          className="sn-hamburger"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open navigation menu"
+        >
+          <Menu size={22} />
+        </button>
+
+        <div className="sn-brand-row">
+          <div className="sn-brand-dot" />
+          <span className="sn-brand">SMARTNEST</span>
+        </div>
+
+        {/* Horizontal links - visible on web, hidden on phone via CSS */}
+        <nav className="sn-toplinks">
+          {navItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) => `sn-toplink${isActive ? ' sn-toplink-active' : ''}`}
+            >
+              <Icon size={16} strokeWidth={2} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+
+      {/* Backdrop + slide-in drawer - only relevant/visible on phone widths */}
+      <div
+        className={`sn-backdrop${drawerOpen ? ' sn-backdrop-visible' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+      />
+      <aside className={`sn-drawer${drawerOpen ? ' sn-drawer-open' : ''}`}>
+        <div className="sn-drawer-header">
+          <div className="sn-brand-row">
+            <div className="sn-brand-dot" />
+            <span className="sn-brand">SMARTNEST</span>
+          </div>
+          <button className="sn-hamburger" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+            <X size={22} />
+          </button>
+        </div>
+        <div className="label-eyebrow" style={{ padding: '0 16px', margin: '8px 0', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', fontWeight: 'bold' }}>
+          Control Panel
+        </div>
+        <nav className="sn-drawerlinks">
+          {navItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              onClick={() => setDrawerOpen(false)}
+              className={({ isActive }) => `sn-drawerlink${isActive ? ' sn-drawerlink-active' : ''}`}
+            >
+              <Icon size={18} strokeWidth={2} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+    </>
+  );
+}

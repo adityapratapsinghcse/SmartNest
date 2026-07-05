@@ -5,12 +5,12 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'smartnest.settings')
 django_asgi_app = get_asgi_application()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
 from devices.routing import websocket_urlpatterns
+from devices.channels_auth import TokenAuthMiddleware
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": AuthMiddlewareStack(
+    "websocket": TokenAuthMiddleware(
         URLRouter(websocket_urlpatterns)
     ),
 })
