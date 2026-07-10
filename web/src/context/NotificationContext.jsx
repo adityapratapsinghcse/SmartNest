@@ -18,12 +18,16 @@ export const NotificationProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        if (!user || !user.householdId) return;
-
-        // Establish the Notification Alerts Stream
+        // If there is no logged-in user or household yet (like on the login page), DO NOTHING safely
+        if (!user || !user.householdId) {
+            return;
+        }
         const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const wsUrl = `${wsScheme}://${window.location.host.replace('3000', '8000')}/ws/alerts/`;
-        
+        // Fallback logic if window.location.host includes a port, safely point to your Django backend port (8000)
+        const backendHost = window.location.host.includes('5173') 
+            ? window.location.hostname + ':8000' 
+            : window.location.host;
+        const wsUrl = `${wsScheme}://${backendHost}/ws/alerts/`;
         const socket = new WebSocket(wsUrl);
 
         socket.onmessage = (event) => {
