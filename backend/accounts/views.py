@@ -118,14 +118,15 @@ def household_members(request):
 def register_split(request):
     """
     POST /api/auth/register-split/
-    Handles initial registration split between Owners and Members.
+    Registers a user and maps them either as a Root Owner with a new household 
+    or as a Link Member searching by the target Owner's username.
     """
     username = request.data.get('username', '').strip()
     email = request.data.get('email', '').strip()
     password = request.data.get('password')
     role_type = request.data.get('role_type') # 'owner' or 'member'
     household_name = request.data.get('household_name', '').strip()
-    target_household_id = request.data.get('target_household_id')
+    target_owner_username = request.data.get('target_owner_username', '').strip()
 
     if not username or not password or not email:
         return Response({"error": "Missing primary credentials."}, status=400)
@@ -140,22 +141,25 @@ def register_split(request):
         user = User.objects.create_user(username=username, email=email, password=password)
         
         if role_type == 'owner':
-            # Create a brand new household environment
             household = Household.objects.create(name=household_name if household_name else f"{username}'s Home")
             Membership.objects.create(user=user, household=household, role='owner', is_active=True)
             return Response({"message": "Owner profile initialized successfully.", "household_id": household.id}, status=201)
+        
         else:
-            # Member creates an unactivated/pending membership request
-            if not target_household_id:
-                return Response({"error": "Target household ID required for member routing."}, status=400)
+            if not target_owner_username:
+                return Response({"error": "Target Owner Username is required for member routing."}, status=400)
+            
+            # Find the target owner's membership entry
             try:
-                household = Household.objects.get(id=target_household_id)
-            except Household.DoesNotExist:
-                return Response({"error": "Target hardware dome environment not found."}, status=404)
+                target_owner = User.objects.get(username=target_owner_username)
+                owner_membership = Membership.objects.get(user=target_owner, role='owner')
+            except (User.DoesNotExist, Membership.DoesNotExist):
+                return Response({"error": "Target system owner profile not found. Verify the username."}, status=404)
                 
-            Membership.objects.create(user=user, household=household, role='member', is_active=False)
+            # Create a pending member request linked to the owner's household
+            Membership.objects.create(user=user, household=owner_membership.household, role='member', is_active=False)
             return Response({"message": "Access connection request transmitted to home controller."}, status=201)
-
+        
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_users(request):

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, UserPlus, Crown, User as UserIcon, Check, X, Search } from 'lucide-react';
+import { Users, UserPlus, Crown, User as UserIcon, Check, X, Search, Terminal } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
@@ -9,7 +9,6 @@ export default function Household() {
   const [requests, setRequests] = useState([]);
   const [myRole, setMyRole] = useState(null);
   
-  // Live autocomplete states
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -24,14 +23,13 @@ export default function Household() {
       const res = await client.get('/api/auth/household-members/', {
         params: { household_id: householdId },
       });
-      // Filter members vs pending link requests
       setMembers(res.data.filter(m => m.is_active || m.role === 'owner'));
       setRequests(res.data.filter(m => !m.is_active && m.role !== 'owner'));
       
       const me = res.data.find((m) => m.username === localStorage.getItem('smartnest_username'));
       setMyRole(me?.role ?? null);
-    } catch {
-      setMsg({ type: 'error', text: 'CRITICAL: Failed to query household infrastructure.' });
+    } catch (err) {
+      setMsg({ type: 'error', text: 'CRITICAL: Data transmission bus query failed.' });
     } finally {
       setLoading(false);
     }
@@ -41,7 +39,6 @@ export default function Household() {
     loadData();
   }, [loadData]);
 
-  // Live Autocomplete Effect
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (searchQuery.trim().length >= 2) {
@@ -50,21 +47,16 @@ export default function Household() {
           setSearchResults(res.data);
           setShowDropdown(true);
         } catch (err) {
-          console.error("Autocomplete search error", err);
+          console.error(err);
         }
       } else {
         setSearchResults([]);
         setShowDropdown(false);
       }
-    }, 300); // 300ms debounce buffer
+    }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
-
-  const selectUser = (username) => {
-    setSearchQuery(username);
-    setShowDropdown(false);
-  };
 
   const handleInvite = async (e) => {
     e.preventDefault();
@@ -75,11 +67,11 @@ export default function Household() {
         household_id: householdId,
         username: searchQuery.trim(),
       });
-      setMsg({ type: 'ok', text: `TRANSACTION_SUCCESS: Access granted to ${searchQuery}.` });
+      setMsg({ type: 'ok', text: `PROVISIONED: ${searchQuery} active.` });
       setSearchQuery('');
       loadData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.response?.data?.error || 'Action rejected.' });
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Execution link dropped.' });
     } finally {
       setBusy(false);
     }
@@ -97,109 +89,123 @@ export default function Household() {
   const isOwner = myRole === 'owner';
 
   return (
-    <div className="sn-page">
-      <div className="sn-page-header">
+    <div className="sn-page" style={{ color: '#EDEFF3', boxSizing: 'border-box' }}>
+      <div className="sn-page-header" style={{ marginBottom: '24px' }}>
         <div>
-          <h1 className="sn-page-title" style={{ fontFamily: 'Manrope' }}>Household Access</h1>
-          <p className="sn-page-subtitle" style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3' }}>
-            PANEL: {householdName?.toUpperCase()} // MATRIX DOME ID: {householdId}
+          <h1 className="sn-page-title" style={{ fontFamily: 'Manrope', fontSize: '1.6rem', margin: 0 }}>Household Access Control</h1>
+          <p className="sn-page-subtitle" style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', margin: '4px 0 0 0', fontSize: '0.8rem' }}>
+            NODE: {householdName?.toUpperCase()} // DOME_ID: {householdId}
           </p>
         </div>
       </div>
 
-      <div className="sn-grid sn-grid-4" style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
         
-        {/* Active Operators */}
-        <div className="ui-panel" style={{ gridColumn: 'span 2', background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: 20 }}>
-          <div className="ui-panel-header" style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: 12, marginBottom: 16 }}>
+        {/* Active Operators Box */}
+        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
             <Users size={16} style={{ color: '#C6813F' }} />
-            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>ACTIVE_OPERATORS</span>
+            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>ACTIVE_DOME_OPERATORS</span>
           </div>
 
           {loading ? (
-            <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3' }}>QUERYING...</p>
+            <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.8rem' }}>BUS_READING...</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {members.map((m) => (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: '#232A33', borderRadius: 4 }}>
-                  {m.role === 'owner' ? <Crown size={16} style={{ color: '#E0A868' }} /> : <UserIcon size={16} style={{ color: '#8C95A3' }} />}
-                  <div>
-                    <div style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3' }}>{m.username}</div>
-                    <div style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.75rem' }}>ROLE: {m.role.toUpperCase()}</div>
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'between', padding: '12px', background: '#232A33', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {m.role === 'owner' ? <Crown size={15} style={{ color: '#E0A868' }} /> : <UserIcon size={15} style={{ color: '#8C95A3' }} />}
+                    <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.9rem' }}>{m.username}</span>
                   </div>
+                  <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.7rem', background: '#12161B', padding: '2px 6px', borderRadius: '3px', color: '#C6813F' }}>
+                    {m.role.toUpperCase()}
+                  </span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Access Provisioning */}
-        <div className="ui-panel" style={{ gridColumn: 'span 2', background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: 20 }}>
-          <div className="ui-panel-header" style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: 12, marginBottom: 16 }}>
+        {/* Access Provisioning Box */}
+        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
             <UserPlus size={16} style={{ color: '#C6813F' }} />
-            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>PROVISION_ACCESS</span>
+            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>DIRECT_PROVISION_NODE</span>
           </div>
 
           {isOwner ? (
-            <form onSubmit={handleInvite} style={{ position: 'relative' }}>
-              <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'block', marginBottom: 6 }}>LOOKUP_OPERATOR_USERNAME</label>
-              <div style={{ display: 'flex', alignItems: 'center', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 4, padding: '2px 10px' }}>
-                <Search size={14} style={{ color: '#8C95A3', marginRight: 8 }} />
+            <form onSubmit={handleInvite} style={{ position: 'relative' }} autoComplete="off">
+              <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'block', marginBottom: '6px' }}>TARGET_USER_SEARCH</label>
+              <div style={{ display: 'flex', alignItems: 'center', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '4px', padding: '2px 10px' }}>
+                <Search size={14} style={{ color: '#8C95A3', marginRight: '8px' }} />
                 <input
-                  className="sn-login-input"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Type to search users..."
+                  onFocus={() => { if(searchResults.length > 0) setShowDropdown(true); }}
+                  placeholder="Scan username..."
                   required
-                  style={{ width: '100%', background: 'none', border: 0, padding: 8, color: '#EDEFF3', fontFamily: 'JetBrains Mono' }}
+                  style={{ width: '100%', background: 'none', border: 0, padding: '8px 0', color: '#EDEFF3', fontFamily: 'JetBrains Mono', outline: 'none' }}
                 />
               </div>
 
-              {/* Autocomplete Dropdown */}
+              {/* Floating Dropdown Result Stack */}
               {showDropdown && searchResults.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#232A33', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, zIndex: 10, marginTop: 4 }}>
+                <div style={{ 
+                  position: 'absolute', top: '70px', left: '20px', right: '20px', 
+                  background: '#232A33', border: '1px solid rgba(255,255,255,0.1)', 
+                  borderRadius: '4px', zIndex: 99, boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                }}>
                   {searchResults.map(u => (
-                    <div key={u.id} onClick={() => selectUser(u.username)} style={{ padding: '10px 14px', fontFamily: 'JetBrains Mono', color: '#EDEFF3', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div 
+                      key={u.id} 
+                      onClick={() => { setSearchQuery(u.username); setShowDropdown(false); }} 
+                      style={{ padding: '10px 14px', fontFamily: 'JetBrains Mono', color: '#EDEFF3', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}
+                      onMouseEnter={(e) => e.target.style.background = '#1B2028'}
+                      onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                    >
                       {u.username}
                     </div>
                   ))}
                 </div>
               )}
 
-              <button className="sn-unlock-btn" style={{ width: '100%', marginTop: 12, background: '#C6813F', color: '#EDEFF3', border: 0, padding: 10, fontFamily: 'JetBrains Mono', cursor: 'pointer' }} disabled={busy}>
-                {busy ? 'SYNCHRONIZING...' : 'AUTHORIZE_NODE'}
+              <button style={{ width: '100%', marginTop: '12px', background: '#C6813F', color: '#EDEFF3', border: 0, padding: '10px', fontFamily: 'JetBrains Mono', cursor: 'pointer', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }} disabled={busy}>
+                {busy ? 'SYNCHRONIZING...' : 'AUTHORIZE_OPERATOR'}
               </button>
             </form>
           ) : (
-            <p style={{ fontFamily: 'Manrope', color: '#E8A33D', fontSize: '0.85rem' }}>Read-only peripheral terminal view.</p>
+            <p style={{ fontFamily: 'Manrope', color: '#E8A33D', fontSize: '0.85rem', margin: 0 }}>
+              Read-only terminal profile. Invite provisioning locked for current permission ring.
+            </p>
           )}
 
-          {msg && <p style={{ marginTop: 12, fontFamily: 'JetBrains Mono', fontSize: '0.8rem', color: msg.type === 'ok' ? '#4CAF7D' : '#E15554' }}>{msg.text}</p>}
+          {msg && <p style={{ marginTop: '12px', fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: msg.type === 'ok' ? '#4CAF7D' : '#E15554', margin: '12px 0 0 0' }}>{msg.text}</p>}
         </div>
-
-        {/* Requests Authorization Breaker Box */}
-        {isOwner && (
-          <div className="ui-panel" style={{ gridColumn: 'span 4', background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: 20, marginTop: 20 }}>
-            <div className="ui-panel-header" style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: 12, marginBottom: 16 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: requests.length > 0 ? '#E15554' : '#4CAF7D', display: 'inline-block' }} />
-              <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>PENDING_BUS_LINK_REQUESTS</span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {requests.map(r => (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#232A33', padding: 12, borderRadius: 4 }}>
-                  <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3' }}>{r.username} // REQ_LINK</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => handleAction(r.id, 'approve')} style={{ background: '#4CAF7D', color: '#EDEFF3', border: 0, padding: 6, borderRadius: 4, cursor: 'pointer' }}><Check size={16} /></button>
-                    <button onClick={() => handleAction(r.id, 'deny')} style={{ background: '#E15554', color: '#EDEFF3', border: 0, padding: 6, borderRadius: 4, cursor: 'pointer' }}><X size={16} /></button>
-                  </div>
-                </div>
-              ))}
-              {requests.length === 0 && <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.8rem', margin: 0 }}>NO_PENDING_REQUESTS_DETECTED</p>}
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Access Requests Matrix Breaker */}
+      {isOwner && (
+        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', marginTop: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: requests.length > 0 ? '#E15554' : '#4CAF7D', display: 'inline-block' }} />
+            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>PENDING_BUS_LINK_REQUESTS</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {requests.map(r => (
+              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#232A33', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}><Terminal size={12} style={{ display: 'inline', marginRight: 6, color: '#C6813F' }} />{r.username} // INBOUND_REQ_LINK</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => handleAction(r.id, 'approve')} style={{ background: '#4CAF7D', color: '#EDEFF3', border: 0, padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Check size={14} /></button>
+                  <button onClick={() => handleAction(r.id, 'deny')} style={{ background: '#E15554', color: '#EDEFF3', border: 0, padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
+                </div>
+              </div>
+            ))}
+            {requests.length === 0 && <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', margin: 0 }}>NO_INBOUND_REQUESTS_DETECTED</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
