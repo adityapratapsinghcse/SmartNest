@@ -18,6 +18,7 @@ class Alert(models.Model):
         ('vibration', 'Vibration / Seismic'),
         ('rfid_denied', 'RFID Access Denied'),
         ('system', 'System / Hardware Fault'),
+        ('car_detected', 'Vehicle Detected at Garage'),
     ]
 
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='alerts', null=True, blank=True)

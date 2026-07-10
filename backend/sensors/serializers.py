@@ -28,3 +28,4 @@ class SensorBulkIngestSerializer(serializers.Serializer):
     light_on = serializers.BooleanField(required=False)
     fan_on = serializers.BooleanField(required=False)
     cutoff_on = serializers.BooleanField(required=False)
+    car_detected = serializers.BooleanField(required=False)

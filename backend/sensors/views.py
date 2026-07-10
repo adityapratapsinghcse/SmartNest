@@ -37,64 +37,64 @@ BOOLEAN_FIELD_MAP = {
 
 
 @api_view(['POST'])
-@authentication_classes([DeviceKeyAuthentication])
 @permission_classes([AllowAny])
 def ingest_sensor_data(request):
-    """
-    POST /api/sensors/data/
-    Header required: X-Device-Key: <device's secret key>
-    """
-    device = request.auth
-    if device is None:
-        return Response({"error": "Missing or invalid X-Device-Key header"}, status=401)
+    # Authenticate device via headers
+    device_key = request.headers.get('X-Device-Key')
+    if not device_key:
+        return Response({"error": "Device key missing"}, status=status.HTTP_401_UNAUTHORIZED)
+        
+    try:
+        from devices.models import Device
+        device = Device.objects.get(device_key=device_key, is_active=True)
+    except Device.DoesNotExist:
+        return Response({"error": "Invalid or inactive device"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    household = device.household
     serializer = SensorBulkIngestSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    if serializer.is_valid():
+        data = serializer.validated_data
+        
+        # Save real-time numeric readings
+        readings_to_create = []
+        for field, value in data.items():
+            if field in ['gas_detected', 'flame_detected', 'water_detected', 'car_detected']:
+                continue # Handled by alert triggers
+            if value is not None:
+                readings_to_create.append(SensorReading(
+                    device=device, sensor_type=field, value=value
+                ))
+        if readings_to_create:
+            SensorReading.objects.bulk_create(readings_to_create)
 
-    data = serializer.validated_data
-    data.pop('device_id', None)  # no longer required/used - device comes from the key
+        # Emergency Threshold & Edge Triggers
+        if data.get('gas_detected'):
+            broadcast_and_push_alert(household, 'gas_leak', "Dangerous gas levels detected in the kitchen!")
+            
+        if data.get('flame_detected'):
+            broadcast_and_push_alert(household, 'fire', "Critical flame signature detected!")
+            
+        if data.get('water_detected'):
+            broadcast_and_push_alert(household, 'water_leak', "Water leak detected near structural points.")
 
-    device.is_online = True
-    device.last_seen = timezone.now()
-    device.save()
+        # Garage Gate Edge Detection (Car Presence)
+        if data.get('car_detected'):
+            # Check if there isn't already an active car_detected alert in the last 2 minutes to prevent spam
+            from django.utils import timezone
+            import datetime
+            two_mins_ago = timezone.now() - datetime.timedelta(minutes=2)
+            recent_car_alert = Alert.objects.filter(
+                household=household, 
+                type='car_detected', 
+                created_at__gte=two_mins_ago
+            ).exists()
+            
+            if not recent_car_alert:
+                broadcast_and_push_alert(household, 'car_detected', "Vehicle detected approaching the garage gate.")
 
-    created = []
-    for field, value in data.items():
-        if field in SENSOR_FIELD_MAP:
-            sensor_type, unit = SENSOR_FIELD_MAP[field]
-            created.append(SensorReading(device=device, sensor_type=sensor_type, value=value, unit=unit))
-        elif field in BOOLEAN_FIELD_MAP and BOOLEAN_FIELD_MAP[field]:
-            sensor_type = BOOLEAN_FIELD_MAP[field]
-            created.append(SensorReading(device=device, sensor_type=sensor_type, value=1.0 if value else 0.0, unit='bool'))
-
-    SensorReading.objects.bulk_create(created)
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
-        f"sensors_{device.household_id}",
-        {
-            "type": "sensor_update",
-            "data": {
-                "device_id": device.id,
-                "device_name": device.name,
-                **request.data  # the raw payload the ESP32 sent
-            }
-        }
-    )
-    # Inside ingest_sensor_data, after the existing bulk_create and WebSocket broadcast, add:
-    if data.get('flame_detected'):
-        Alert.objects.create(device=device, type='fire', severity='critical', message='Flame detected - possible fire!')
-        send_alert_push(device.household_id, "🔥 Fire Alert", "Flame sensor triggered - check immediately!")
-
-    if data.get('water_leak'):
-        Alert.objects.create(device=device, type='water_leak', severity='critical', message='Water leak detected!')
-        send_alert_push(device.household_id, "💧 Water Leak", "Leak sensor triggered.")
-
-    if data.get('gas_percent', 0) > 55:
-        Alert.objects.create(device=device, type='gas_leak', severity='critical', message=f"Gas level critical: {data.get('gas_percent')}%")
-        send_alert_push(device.household_id, "⚠️ Gas Alert", f"Gas level at {data.get('gas_percent')}% - critical threshold exceeded!")
-        return Response({"status": "ok", "readings_created": len(created)}, status=status.HTTP_201_CREATED)
-
+        return Response({"status": "success", "message": "Data processed successfully"}, status=status.HTTP_200_OK)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -150,3 +150,36 @@ def sensor_history(request):
 
     serializer = SensorReadingSerializer(readings, many=True)
     return Response(serializer.data)
+
+
+logger = logging.getLogger(__name__)
+
+def broadcast_and_push_alert(household, alert_type, message):
+    """Helper to save alert, push to FCM, and broadcast over WebSocket simultaneously"""
+    alert = Alert.objects.create(
+        household=household,
+        type=alert_type,
+        message=message,
+        severity='high'
+    )
+    
+    # 1. Broadcast to in-app WebSockets
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"alerts_{household.id}",
+        {
+            "type": "alert_message",
+            "message": {
+                "id": alert.id,
+                "type": alert.type,
+                "message": alert.message,
+                "severity": alert.severity,
+                "is_resolved": alert.is_resolved,
+                "created_at": alert.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            }
+        }
+    )
+    
+    # 2. Push to Android Mobile App via FCM
+    send_alert_push(household, f"🚨 SmartNest Alert", message)
+    return alert

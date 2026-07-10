@@ -17,6 +17,7 @@ class SensorReading(models.Model):
         ('light_relay', 'Light Relay State'),
         ('fan_relay', 'Fan Relay State'),
         ('cutoff_relay', 'Cutoff Relay State'),
+        ('car_presence', 'Garage Ultrasonic — Vehicle Presence'),
     ]
 
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='readings')
