@@ -7,4 +7,7 @@ urlpatterns = [
     path('invite/', views.invite_member, name='invite-member'),
     path('my-households/', views.my_households, name='my-households'),
     path('household-members/', views.household_members, name='household-members'),
+    path('register-split/', views.register_split, name='register-split'),
+    path('search-users/', views.search_users, name='search-users'),
+    path('handle-request/', views.handle_join_request, name='handle-request'),
 ]

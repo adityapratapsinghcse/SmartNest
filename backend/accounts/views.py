@@ -112,3 +112,90 @@ def household_members(request):
     } for m in members]
     
     return Response(data)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register_split(request):
+    """
+    POST /api/auth/register-split/
+    Handles initial registration split between Owners and Members.
+    """
+    username = request.data.get('username', '').strip()
+    email = request.data.get('email', '').strip()
+    password = request.data.get('password')
+    role_type = request.data.get('role_type') # 'owner' or 'member'
+    household_name = request.data.get('household_name', '').strip()
+    target_household_id = request.data.get('target_household_id')
+
+    if not username or not password or not email:
+        return Response({"error": "Missing primary credentials."}, status=400)
+    
+    if User.objects.filter(username=username).exists():
+        return Response({"username": ["A user with that username already exists."]}, status=400)
+
+    if len(password) < 6:
+        return Response({"password": ["Ensure this field has at least 6 characters."]}, status=400)
+
+    with transaction.atomic():
+        user = User.objects.create_user(username=username, email=email, password=password)
+        
+        if role_type == 'owner':
+            # Create a brand new household environment
+            household = Household.objects.create(name=household_name if household_name else f"{username}'s Home")
+            Membership.objects.create(user=user, household=household, role='owner', is_active=True)
+            return Response({"message": "Owner profile initialized successfully.", "household_id": household.id}, status=201)
+        else:
+            # Member creates an unactivated/pending membership request
+            if not target_household_id:
+                return Response({"error": "Target household ID required for member routing."}, status=400)
+            try:
+                household = Household.objects.get(id=target_household_id)
+            except Household.DoesNotExist:
+                return Response({"error": "Target hardware dome environment not found."}, status=404)
+                
+            Membership.objects.create(user=user, household=household, role='member', is_active=False)
+            return Response({"message": "Access connection request transmitted to home controller."}, status=201)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_users(request):
+    """
+    GET /api/auth/search-users/?q=adi
+    Live autocomplete filter searching usernames.
+    """
+    query = request.query_params.get('q', '').strip()
+    if len(query) < 2:
+        return Response([])
+    
+    users = User.objects.filter(username__icontains=query).exclude(id=request.user.id)[:5]
+    return Response([{"id": u.id, "username": u.username} for u in users])
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def handle_join_request(request):
+    """
+    POST /api/auth/handle-request/
+    Owner action to activate or purge pending household link requests.
+    """
+    membership_id = request.data.get('membership_id')
+    action = request.data.get('action') # 'approve' or 'deny'
+    
+    try:
+        req_membership = Membership.objects.get(id=membership_id)
+    except Membership.DoesNotExist:
+        return Response({"error": "Target request profile not found."}, status=404)
+
+    # Validate that current execution context user is the owner of that exact household
+    is_owner = Membership.objects.filter(user=request.user, household=req_membership.household, role='owner').exists()
+    if not is_owner:
+        return Response({"error": "Root authentication signature missing."}, status=403)
+
+    if action == 'approve':
+        req_membership.is_active = True
+        req_membership.save()
+        return Response({"message": "Access channel active."})
+    elif action == 'deny':
+        req_membership.delete()
+        return Response({"message": "Access request purged."})
+    
+    return Response({"error": "Invalid operation value."}, status=400)
