@@ -10,7 +10,7 @@ class SensorReading(models.Model):
         ('window', 'Reed Switch / Window'),
         ('gas', 'MQ-2 Gas'),
         ('flame', 'Flame Sensor'),
-        ('water', 'Water Leak'),
+        ('water_level', 'Water Tank Level (%)'),
         ('current', 'ACS712 Current'),
         ('light', 'LDR Light Level'),
         ('vibration', 'MPU6050 Vibration'),
@@ -23,7 +23,7 @@ class SensorReading(models.Model):
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='readings')
     sensor_type = models.CharField(max_length=20, choices=SENSOR_TYPES)
     value = models.FloatField()
-    unit = models.CharField(max_length=20, blank=True)  # e.g. "C", "%", "cm", "A"
+    unit = models.CharField(max_length=20, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:

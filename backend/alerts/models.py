@@ -11,7 +11,7 @@ class Alert(models.Model):
     ALERT_TYPES = [
         ('gas_leak', 'Gas Leak'),
         ('fire', 'Fire / Flame'),
-        ('water_leak', 'Water Leak'),
+        ('water_low', 'Water Tank Level Low'),
         ('overcurrent', 'Current Overload'),
         ('intrusion', 'Motion / Intrusion'),
         ('window_open', 'Window / Door Open'),

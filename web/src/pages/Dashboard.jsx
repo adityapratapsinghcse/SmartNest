@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   const [readings, setReadings] = useState({
     temperature: null, humidity: null, gas: null, current: null, light: null,
-    water: null, flame: null, motion: null, window: null, vibration: null,
+    water_level: null, flame: null, motion: null, window: null, vibration: null,
     car_presence: null, light_relay: null, fan_relay: null, cutoff_relay: null,
   });
 
@@ -95,7 +95,7 @@ export default function Dashboard() {
       gas: lastMessage.gas_percent ?? prev.gas,
       current: lastMessage.current_amps ?? prev.current,
       light: lastMessage.light_percent ?? prev.light,
-      water: lastMessage.water_leak !== undefined ? (lastMessage.water_leak ? 1 : 0) : prev.water,
+      water_level: lastMessage.water_level_percent ?? prev.water_level,
       flame: lastMessage.flame_detected !== undefined ? (lastMessage.flame_detected ? 1 : 0) : prev.flame,
       motion: lastMessage.motion !== undefined ? (lastMessage.motion ? 1 : 0) : prev.motion,
       window: lastMessage.window_open !== undefined ? (lastMessage.window_open ? 1 : 0) : prev.window,
@@ -141,6 +141,14 @@ export default function Dashboard() {
   const isOnline = lastSeenAt !== null && (now - lastSeenAt) < OFFLINE_THRESHOLD_MS;
 
   const currentStatus = readings.current >= 3 ? 'critical' : readings.current >= 2 ? 'warning' : 'safe';
+
+  // Matches the backend's TANK_CRITICAL_PERCENT / TANK_LOW_PERCENT thresholds
+  const waterLevel = readings.water_level;
+  const waterStatus = waterLevel === null ? 'safe' : waterLevel <= 10 ? 'critical' : waterLevel <= 25 ? 'warning' : 'safe';
+  const waterStatusText = waterLevel === null ? 'NO DATA'
+    : waterStatus === 'critical' ? 'REFILL NOW'
+    : waterStatus === 'warning' ? 'GETTING LOW'
+    : 'GOOD';
 
   if (loading) return <div className="sn-page-loading">Loading dashboard…</div>;
 
@@ -259,8 +267,29 @@ export default function Dashboard() {
       </div>
 
       <div className="sn-dashboard-lower">
-        <PanelCard title="Water Leak" icon={Droplets}>
-          <StatusPill status={readings.water ? 'critical' : 'safe'} text={readings.water ? 'LEAK DETECTED' : 'DRY'} />
+        <PanelCard title="Water Tank" icon={Droplets}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{
+              width: 32, height: 60, borderRadius: 6, position: 'relative',
+              background: 'var(--bg-panel-raised)', border: '1px solid var(--border-subtle)',
+              overflow: 'hidden', flexShrink: 0,
+            }}>
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                height: `${Math.max(0, Math.min(100, waterLevel ?? 0))}%`,
+                background: waterStatus === 'critical' ? 'var(--status-critical)' : waterStatus === 'warning' ? 'var(--status-warning)' : 'var(--status-safe)',
+                transition: 'height 0.6s ease',
+              }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="sn-stat-row">
+                <span><span className="sn-stat-value">{waterLevel ?? '--'}</span><span className="sn-stat-unit">%</span></span>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <StatusPill status={waterStatus} text={waterStatusText} />
+              </div>
+            </div>
+          </div>
         </PanelCard>
 
         <PanelCard title="Structural Vibration" icon={Wind}>

@@ -19,7 +19,6 @@ class SensorBulkIngestSerializer(serializers.Serializer):
     window_open = serializers.BooleanField(required=False)
     gas_percent = serializers.FloatField(required=False)
     flame_detected = serializers.BooleanField(required=False)
-    water_leak = serializers.BooleanField(required=False)
     current_amps = serializers.FloatField(required=False)
     light_percent = serializers.FloatField(required=False)
     is_dark = serializers.BooleanField(required=False)

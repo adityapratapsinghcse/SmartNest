@@ -29,13 +29,36 @@ BOOLEAN_FIELD_MAP = {
     'motion':             'motion',
     'window_open':        'window',
     'flame_detected':     'flame',
-    'water_leak':         'water',
-    'is_dark':            None,
     'vibration_detected': 'vibration',
     'light_on':           'light_relay',
     'fan_on':             'fan_relay',
     'cutoff_on':          'cutoff_relay',
+    'car_detected':       'car_presence',
 }
+
+# ---- Water tank calibration ----
+# The ultrasonic sensor sits at the TOP of the tank and measures the distance
+# (in cm) down to the water surface. Adjust TANK_HEIGHT_CM to the real depth
+# of your tank (the reading you'd get when it's completely empty).
+TANK_HEIGHT_CM = 100
+TANK_LOW_PERCENT = 25          # "getting low" warning at/under this level
+TANK_CRITICAL_PERCENT = 10     # "refill now" alert at/under this level
+ALERT_REPEAT_COOLDOWN_MINUTES = 30  # don't spam the same alert more than once per window
+
+
+def compute_water_level_percent(distance_cm):
+    """Convert a raw ultrasonic distance reading into a 0-100% tank fill level."""
+    if distance_cm is None:
+        return None
+    level = ((TANK_HEIGHT_CM - distance_cm) / TANK_HEIGHT_CM) * 100
+    return round(max(0, min(100, level)), 1)
+
+
+def _recent_alert_exists(device, alert_type, minutes=ALERT_REPEAT_COOLDOWN_MINUTES):
+    from django.utils import timezone
+    import datetime
+    since = timezone.now() - datetime.timedelta(minutes=minutes)
+    return Alert.objects.filter(device=device, type=alert_type, timestamp__gte=since).exists()
 
 
 @api_view(['POST'])
@@ -45,58 +68,87 @@ def ingest_sensor_data(request):
     device_key = request.headers.get('X-Device-Key')
     if not device_key:
         return Response({"error": "Device key missing"}, status=status.HTTP_401_UNAUTHORIZED)
-        
+
     try:
         from devices.models import Device
-        device = Device.objects.get(device_key=device_key, is_active=True)
+        device = Device.objects.get(device_key=device_key)
     except Device.DoesNotExist:
-        return Response({"error": "Invalid or inactive device"}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"error": "Invalid device key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     household = device.household
+
+    # Mark the board as online now that it has actually reached us
+    device.is_online = True
+    device.last_seen = timezone.now()
+    device.save(update_fields=['is_online', 'last_seen'])
+
     serializer = SensorBulkIngestSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        data = serializer.validated_data
-        
-        # Save real-time numeric readings
-        readings_to_create = []
-        for field, value in data.items():
-            if field in ['gas_detected', 'flame_detected', 'water_detected', 'car_detected']:
-                continue # Handled by alert triggers
-            if value is not None:
-                readings_to_create.append(SensorReading(
-                    device=device, sensor_type=field, value=value
-                ))
-        if readings_to_create:
-            SensorReading.objects.bulk_create(readings_to_create)
 
-        # Emergency Threshold & Edge Triggers
-        if data.get('gas_detected'):
-            broadcast_and_push_alert(household, 'gas_leak', "Dangerous gas levels detected in the kitchen!")
-            
-        if data.get('flame_detected'):
-            broadcast_and_push_alert(household, 'fire', "Critical flame signature detected!")
-            
-        if data.get('water_detected'):
-            broadcast_and_push_alert(household, 'water_leak', "Water leak detected near structural points.")
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Garage Gate Edge Detection (Car Presence)
-        if data.get('car_detected'):
-            # Check if there isn't already an active car_detected alert in the last 2 minutes to prevent spam
-            from django.utils import timezone
-            import datetime
-            two_mins_ago = timezone.now() - datetime.timedelta(minutes=2)
-            recent_car_alert = Alert.objects.filter(
-                household=household, 
-                type='car_detected', 
-                created_at__gte=two_mins_ago
-            ).exists()
-            
-            if not recent_car_alert:
-                broadcast_and_push_alert(household, 'car_detected', "Vehicle detected approaching the garage gate.")
+    data = serializer.validated_data
+    readings_to_create = []
+    broadcast_payload = {}  # what gets pushed live to the dashboard over WebSocket
 
-        return Response({"status": "success", "message": "Data processed successfully"}, status=status.HTTP_200_OK)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    # Numeric readings (temperature, humidity, distance, gas, current, light)
+    for field, (sensor_type, unit) in SENSOR_FIELD_MAP.items():
+        value = data.get(field)
+        if value is not None:
+            readings_to_create.append(SensorReading(device=device, sensor_type=sensor_type, value=value, unit=unit))
+            broadcast_payload[field] = value
+
+    # Boolean / relay states, stored as 1.0 / 0.0
+    for field, sensor_type in BOOLEAN_FIELD_MAP.items():
+        value = data.get(field)
+        if value is not None:
+            readings_to_create.append(SensorReading(device=device, sensor_type=sensor_type, value=1.0 if value else 0.0))
+            broadcast_payload[field] = value
+
+    # Derive the water tank level (%) straight from the ultrasonic distance reading
+    water_level_percent = compute_water_level_percent(data.get('distance_cm'))
+    if water_level_percent is not None:
+        readings_to_create.append(SensorReading(device=device, sensor_type='water_level', value=water_level_percent, unit='%'))
+        broadcast_payload['water_level_percent'] = water_level_percent
+
+    if readings_to_create:
+        SensorReading.objects.bulk_create(readings_to_create)
+
+    # Push this reading to the live dashboard immediately, in real time
+    if broadcast_payload:
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"sensors_{household.id}",
+            {"type": "sensor_update", "data": broadcast_payload},
+        )
+
+    # ---- Emergency threshold & edge triggers ----
+    if data.get('flame_detected'):
+        broadcast_and_push_alert(device, 'fire', "Critical flame signature detected!", severity='critical')
+
+    # Water tank level alerts (replaces the old boolean water-leak alert)
+    if water_level_percent is not None:
+        if water_level_percent <= TANK_CRITICAL_PERCENT:
+            if not _recent_alert_exists(device, 'water_low'):
+                broadcast_and_push_alert(
+                    device, 'water_low',
+                    f"Water tank is critically low ({water_level_percent}%). Please refill soon.",
+                    severity='critical',
+                )
+        elif water_level_percent <= TANK_LOW_PERCENT:
+            if not _recent_alert_exists(device, 'water_low'):
+                broadcast_and_push_alert(
+                    device, 'water_low',
+                    f"Water tank level is getting low ({water_level_percent}%).",
+                    severity='warning',
+                )
+
+    # Garage Gate Edge Detection (Car Presence)
+    if data.get('car_detected'):
+        if not _recent_alert_exists(device, 'car_detected', minutes=2):
+            broadcast_and_push_alert(device, 'car_detected', "Vehicle detected approaching the garage gate.", severity='warning')
+
+    return Response({"status": "success", "message": "Data processed successfully"}, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -156,32 +208,35 @@ def sensor_history(request):
 
 logger = logging.getLogger(__name__)
 
-def broadcast_and_push_alert(household, alert_type, message):
+def broadcast_and_push_alert(device, alert_type, message, severity='warning'):
     """Helper to save alert, push to FCM, and broadcast over WebSocket simultaneously"""
     alert = Alert.objects.create(
-        household=household,
+        device=device,
         type=alert_type,
         message=message,
-        severity='high'
+        severity=severity
     )
-    
+
     # 1. Broadcast to in-app WebSockets
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
-        f"alerts_{household.id}",
+        f"alerts_{device.household_id}",
         {
-            "type": "alert_message",
+            # NOTE: this "type" must match AlertConsumer's handler method name (alert_update)
+            "type": "alert_update",
             "message": {
                 "id": alert.id,
+                "device_id": device.id,
                 "type": alert.type,
                 "message": alert.message,
                 "severity": alert.severity,
-                "is_resolved": alert.is_resolved,
-                "created_at": alert.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+                "is_read": alert.is_read,
+                "timestamp": alert.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "created_at": alert.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         }
     )
-    
+
     # 2. Push to Android Mobile App via FCM
-    send_alert_push(household, f"🚨 SmartNest Alert", message)
+    send_alert_push(device.household_id, "🚨 SmartNest Alert", message)
     return alert
