@@ -27,14 +27,9 @@ function ProtectedLayout({ children }) {
   }
 
   return (
-    <div>
+    <div className="sn-shell">
       <Navbar />
-      <main
-        style={{
-          padding: '24px',
-          boxSizing: 'border-box',
-        }}
-      >
+      <main className="sn-main">
         {children}
       </main>
     </div>

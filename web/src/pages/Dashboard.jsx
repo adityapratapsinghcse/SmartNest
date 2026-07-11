@@ -1,326 +1,297 @@
-import { useState, useEffect, useCallback } from 'react';
-import { 
-  Thermometer, Droplets, Wind, Flame, ShieldAlert, Car, Power, Lightbulb, 
-  Fan, Unlock, Activity, Zap, Download, BrainCircuit, Cpu, Sun, Waves, 
-  Radio, Fingerprint, History, Gauge
+import { useState, useEffect } from 'react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import {
+  Thermometer, Droplets, Wind, Zap, DoorOpen, Car, Flame, Radio,
+  Lightbulb, Fan, Power, ShieldAlert, Fingerprint, Activity,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import PanelCard from '../components/ui/PanelCard';
+import DialGauge from '../components/ui/DialGauge';
+import ToggleSwitch from '../components/ui/ToggleSwitch';
+import StatusPill from '../components/ui/StatusPill';
+import LiveDot from '../components/ui/LiveDot';
 import client from '../api/client';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useAuth } from '../context/AuthContext';
+
+// How stale the last sensor post has to be before we call the hardware "offline"
+const OFFLINE_THRESHOLD_MS = 60 * 1000;
 
 export default function Dashboard() {
-  const { householdName } = useAuth();
+  const { householdId, householdName } = useAuth();
+  const [device, setDevice] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [sysStatus, setSysStatus] = useState('Online');
-  const [isDownloading, setIsDownloading] = useState(false);
-  
-  // Expanded Metrics to cover ALL your physical hardware
-  const [metrics, setMetrics] = useState({
-    temperature: 24.5, humidity: 45.2,
-    gas_percent: 12, flame_detected: false,
-    car_detected: false, garage_distance_cm: 250,
-    water_leak: false, motion: false, 
-    is_dark: false, ambient_light_pct: 68, // From LDR
-    current_amps: 1.2, power_watts: 276, // From ACS712
-    water_tank_pct: 75, // From Ultrasonic #2
-    seismic_vibration: 0.02, // From MPU6050
-    last_rfid_user: 'OPERATOR_ALPHA',
-    last_rfid_time: '10:42 AM'
+  const [lastSeenAt, setLastSeenAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  const [readings, setReadings] = useState({
+    temperature: null, humidity: null, gas: null, current: null, light: null,
+    water: null, flame: null, motion: null, window: null, vibration: null,
+    car_presence: null, light_relay: null, fan_relay: null, cutoff_relay: null,
   });
 
-  const [controls, setControls] = useState({
-    light_on: false,
-    fan_on: false,
-    door_unlocked: false
-  });
+  const [history, setHistory] = useState([]);
+  const [accessLog, setAccessLog] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [energyToday, setEnergyToday] = useState(null);
 
-  const fetchTelemetry = useCallback(async () => {
-    try {
-      const res = await client.get('/api/sensors/latest/');
-      if (res.data && res.data.length > 0) {
-        setMetrics(prev => ({ ...prev, ...res.data[0] })); 
-        setSysStatus('Online');
-      }
-    } catch (err) {
-      setSysStatus('Offline');
-    } finally {
-      setLoading(false);
-    }
+  const { lastMessage } = useWebSocket('/ws/sensors/', householdId);
+  const { lastMessage: alertMessage } = useWebSocket('/ws/alerts/', householdId);
+
+  // Tick every 5s so the "online/offline" badge stays accurate without a refresh
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 3000);
-    return () => clearInterval(interval);
-  }, [fetchTelemetry]);
+    if (!householdId) return;
+    (async () => {
+      try {
+        const devicesRes = await client.get('/api/devices/');
+        if (devicesRes.data.length === 0) { setLoading(false); return; }
+        const primaryDevice = devicesRes.data[0];
+        setDevice(primaryDevice);
 
-  const dispatchCommand = async (actuator, actionName) => {
-    setControls(prev => ({ ...prev, [actuator]: !prev[actuator] }));
+        const [latestRes, histRes, accessRes, alertsRes, energyRes] = await Promise.all([
+          client.get(`/api/sensors/latest/?device_id=${primaryDevice.id}`),
+          client.get(`/api/sensors/history/?device_id=${primaryDevice.id}&sensor_type=temperature&limit=24`),
+          client.get(`/api/access/log/?device_id=${primaryDevice.id}`),
+          client.get('/api/alerts/?is_read=false'),
+          client.get(`/api/energy/summary/?device_id=${primaryDevice.id}`).catch(() => null),
+        ]);
+
+        const merged = {};
+        latestRes.data.forEach((r) => { merged[r.sensor_type] = r.value; });
+        setReadings((prev) => ({ ...prev, ...merged }));
+        if (latestRes.data.length > 0) {
+          const newest = latestRes.data.reduce((a, b) => (new Date(a.timestamp) > new Date(b.timestamp) ? a : b));
+          setLastSeenAt(new Date(newest.timestamp).getTime());
+        }
+
+        setHistory(histRes.data.slice().reverse().map((r) => ({
+          time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          temp: r.value,
+        })));
+
+        setAccessLog(accessRes.data.slice(0, 5));
+        setAlerts(alertsRes.data.slice(0, 6));
+        if (energyRes?.data) setEnergyToday(energyRes.data.today_kwh);
+      } catch (err) {
+        console.error('Failed to load dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [householdId]);
+
+  // Live sensor push
+  useEffect(() => {
+    if (!lastMessage) return;
+    setLastSeenAt(Date.now());
+    setReadings((prev) => ({
+      ...prev,
+      temperature: lastMessage.temperature ?? prev.temperature,
+      humidity: lastMessage.humidity ?? prev.humidity,
+      gas: lastMessage.gas_percent ?? prev.gas,
+      current: lastMessage.current_amps ?? prev.current,
+      light: lastMessage.light_percent ?? prev.light,
+      water: lastMessage.water_leak !== undefined ? (lastMessage.water_leak ? 1 : 0) : prev.water,
+      flame: lastMessage.flame_detected !== undefined ? (lastMessage.flame_detected ? 1 : 0) : prev.flame,
+      motion: lastMessage.motion !== undefined ? (lastMessage.motion ? 1 : 0) : prev.motion,
+      window: lastMessage.window_open !== undefined ? (lastMessage.window_open ? 1 : 0) : prev.window,
+      vibration: lastMessage.vibration_detected !== undefined ? (lastMessage.vibration_detected ? 1 : 0) : prev.vibration,
+      car_presence: lastMessage.car_detected !== undefined ? (lastMessage.car_detected ? 1 : 0) : prev.car_presence,
+      light_relay: lastMessage.light_on !== undefined ? (lastMessage.light_on ? 1 : 0) : prev.light_relay,
+      fan_relay: lastMessage.fan_on !== undefined ? (lastMessage.fan_on ? 1 : 0) : prev.fan_relay,
+      cutoff_relay: lastMessage.cutoff_on !== undefined ? (lastMessage.cutoff_on ? 1 : 0) : prev.cutoff_relay,
+    }));
+    if (lastMessage.temperature !== undefined) {
+      setHistory((prev) => [...prev.slice(-23), {
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        temp: lastMessage.temperature,
+      }]);
+    }
+  }, [lastMessage]);
+
+  // Live alert push
+  useEffect(() => {
+    if (!alertMessage) return;
+    setAlerts((prev) => [alertMessage, ...prev].slice(0, 6));
+  }, [alertMessage]);
+
+  const sendCommand = async (action) => {
+    if (!device) return;
     try {
-      await client.post('/api/commands/send/', { device_id: 1, action: actionName });
+      await client.post('/api/commands/send/', { device: device.id, action });
     } catch (err) {
-      setControls(prev => ({ ...prev, [actuator]: !prev[actuator] }));
+      console.error('Command failed to send:', err);
     }
   };
 
-  const handleDownloadReport = () => {
-    setIsDownloading(true);
-    setTimeout(() => { setIsDownloading(false); }, 2000);
+  const toggleLight = (on) => {
+    setReadings((prev) => ({ ...prev, light_relay: on ? 1 : 0 }));
+    sendCommand(on ? 'light_on' : 'light_off');
   };
+  const toggleFan = (on) => {
+    setReadings((prev) => ({ ...prev, fan_relay: on ? 1 : 0 }));
+    sendCommand(on ? 'fan_on' : 'fan_off');
+  };
+  const unlockGate = () => sendCommand('unlock_door');
 
-  // UI Components
-  const renderDial = (value, max, label, unit, icon, color) => {
-    const safeValue = Number(value) || 0;
-    const percentage = Math.min(Math.max(safeValue / max, 0), 1) * 100;
+  const isOnline = lastSeenAt !== null && (now - lastSeenAt) < OFFLINE_THRESHOLD_MS;
+
+  const currentStatus = readings.current >= 3 ? 'critical' : readings.current >= 2 ? 'warning' : 'safe';
+
+  if (loading) return <div className="sn-page-loading">Loading dashboard…</div>;
+
+  if (!device) {
     return (
-      <div className="telemetry-box">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8C95A3', marginBottom: '12px' }}>
-          {icon} <span style={{ fontFamily: 'Manrope', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
-        </div>
-        <div style={{ position: 'relative', width: '90px', height: '90px', borderRadius: '50%', background: `conic-gradient(${color} ${percentage}%, rgba(255,255,255,0.03) ${percentage}%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', boxShadow: `0 0 15px ${color}15` }}>
-          <div style={{ width: '74px', height: '74px', borderRadius: '50%', background: '#161B22', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 4px 10px rgba(0,0,0,0.4)' }}>
-            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.2rem', fontWeight: 'bold' }}>{safeValue.toFixed(1)}</span>
-            <span style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.65rem', fontWeight: 600 }}>{unit}</span>
-          </div>
-        </div>
+      <div className="sn-page">
+        <h1 className="sn-page-title">Dashboard</h1>
+        <p className="sn-page-subtitle">No devices found yet. Add an ESP32 board under Devices to get started.</p>
       </div>
     );
-  };
-
-  const renderBar = (value, label, icon, color) => {
-    const safeValue = Number(value) || 0;
-    return (
-      <div className="telemetry-box" style={{ flexGrow: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8C95A3' }}>
-            {icon} <span style={{ fontFamily: 'Manrope', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>{label}</span>
-          </div>
-          <span style={{ fontFamily: 'JetBrains Mono', color: color, fontSize: '0.9rem', fontWeight: 'bold' }}>{safeValue.toFixed(0)}%</span>
-        </div>
-        <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-          <div style={{ width: `${Math.min(Math.max(safeValue, 0), 100)}%`, height: '100%', background: color, borderRadius: '4px', boxShadow: `0 0 10px ${color}` }} />
-        </div>
-      </div>
-    );
-  };
+  }
 
   return (
-    <div className="sn-page" style={{ paddingBottom: '40px', maxWidth: '1600px', margin: '0 auto' }}>
-      <style>{`
-        .glass-panel {
-          background: rgba(22, 27, 34, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px;
-          box-shadow: 0 12px 32px rgba(0,0,0,0.2); display: flex; flex-direction: column;
-        }
-        .telemetry-box {
-          background: rgba(13, 17, 23, 0.5); border: 1px solid rgba(255,255,255,0.03);
-          border-radius: 12px; padding: 16px; transition: transform 0.2s, background 0.2s;
-        }
-        .telemetry-box:hover { transform: translateY(-2px); background: rgba(13, 17, 23, 0.8); border-color: rgba(255,255,255,0.08); }
-        .smart-toggle { appearance: none; width: 44px; height: 24px; background: rgba(255,255,255,0.1); border-radius: 12px; position: relative; cursor: pointer; outline: none; transition: 0.3s; }
-        .smart-toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #8C95A3; border-radius: 50%; transition: 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-        .smart-toggle:checked { background: #C6813F; }
-        .smart-toggle:checked::after { transform: translateX(20px); background: #ffffff; }
-        .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #E15554; box-shadow: 0 0 8px #E15554; animation: blink 1.5s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .hazard-card { display: flex; align-items: center; gap: 16px; background: rgba(13, 17, 23, 0.5); padding: 16px; border-radius: 12px; transition: 0.2s; border: 1px solid rgba(255,255,255,0.02); }
-      `}</style>
-
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+    <div className="sn-page">
+      <div className="sn-page-header">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-            <h1 style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '2.2rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>NEXUS COMMAND</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: sysStatus === 'Online' ? 'rgba(76, 175, 125, 0.1)' : 'rgba(225, 85, 84, 0.1)', padding: '4px 10px', borderRadius: '100px', border: sysStatus === 'Online' ? '1px solid rgba(76, 175, 125, 0.2)' : '1px solid rgba(225, 85, 84, 0.2)' }}>
-              <Activity size={12} style={{ color: sysStatus === 'Online' ? '#4CAF7D' : '#E15554' }} />
-              <span style={{ fontFamily: 'JetBrains Mono', color: sysStatus === 'Online' ? '#4CAF7D' : '#E15554', fontSize: '0.7rem', fontWeight: 700 }}>{sysStatus.toUpperCase()}</span>
-            </div>
-          </div>
-          <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', margin: 0, fontSize: '0.85rem', letterSpacing: '0.05em' }}>
-            ID: {householdName?.toUpperCase() || 'DOME_ALPHA'} // MULTI_NODE_ARCHITECTURE_ACTIVE
-          </p>
+          <h1 className="sn-page-title">Dashboard</h1>
+          <p className="sn-page-subtitle">{householdName} — live from {device.name}</p>
+        </div>
+        <div className="sn-live-indicator">
+          <LiveDot color={isOnline ? 'var(--status-safe)' : 'var(--status-critical)'} />
+          <span className="label-eyebrow">{isOnline ? 'Hardware Online' : 'Hardware Offline'}</span>
         </div>
       </div>
 
-      {/* ROW 1: Environmental & Resource Core (Massive Data Density) */}
-      <div className="glass-panel" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <Gauge size={18} style={{ color: '#3B82F6' }} />
-          <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1.1rem', fontWeight: 700 }}>Core Telemetry Matrix</span>
+      {!isOnline && (
+        <div className="sn-alert-item" style={{ background: 'rgba(225,85,84,0.08)', border: '1px solid rgba(225,85,84,0.3)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <ShieldAlert size={16} style={{ color: 'var(--status-critical)' }} />
+          <span style={{ fontSize: 13.5 }}>
+            No data from {device.name} in the last minute. Readings below are the last known values, not live.
+          </span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-          {renderDial(metrics.temperature, 50, 'Core Temp', '°C', <Thermometer size={14} />, '#E0A868')}
-          {renderDial(metrics.humidity, 100, 'Humidity', '%', <Droplets size={14} />, '#4CAF7D')}
-          {renderDial(metrics.gas_percent, 100, 'Air Quality', 'AQI', <Wind size={14} />, metrics.gas_percent > 40 ? '#E15554' : '#C6813F')}
-          {renderDial(metrics.current_amps, 5, 'Power Draw', 'AMP', <Power size={14} />, '#3B82F6')}
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', gridColumn: 'span 2' }}>
-            {renderBar(metrics.water_tank_pct, 'Reservoir Tank Level (Ultrasonic 2)', <Waves size={14} />, '#3B82F6')}
-            {renderBar(metrics.ambient_light_pct, 'Ambient Light Index (LDR)', <Sun size={14} />, '#E0A868')}
+      )}
+
+      {/* Hero gauges */}
+      <PanelCard title="Core Telemetry" icon={Activity}>
+        <div className="sn-gauge-row">
+          <DialGauge value={readings.temperature ?? 0} max={50} unit="°C" label="Temperature" thresholds={{ warning: 28, critical: 35 }} />
+          <DialGauge value={readings.humidity ?? 0} max={100} unit="%" label="Humidity" thresholds={{ warning: 70, critical: 90 }} />
+          <DialGauge value={readings.gas ?? 0} max={100} unit="%" label="Gas (MQ-2)" thresholds={{ warning: 25, critical: 50 }} />
+          <DialGauge value={readings.current ?? 0} max={5} unit="A" label="Current Draw" thresholds={{ warning: 2, critical: 3 }} />
+        </div>
+      </PanelCard>
+
+      {/* Zone status strip */}
+      <div className="sn-grid sn-grid-4" style={{ marginTop: 20 }}>
+        <PanelCard title="Gate" icon={DoorOpen}>
+          <div className="sn-security-item">
+            <Fingerprint size={16} className="sn-security-icon" />
+            <span>Last scan</span>
+            <StatusPill status={accessLog[0]?.granted ? 'safe' : accessLog[0] ? 'critical' : 'safe'} text={accessLog[0] ? (accessLog[0].granted ? 'GRANTED' : 'DENIED') : 'NO SCANS YET'} />
           </div>
-        </div>
+        </PanelCard>
+
+        <PanelCard title="Garage" icon={Car}>
+          <div className="sn-security-item">
+            <Car size={16} className="sn-security-icon" />
+            <span>Vehicle bay</span>
+            <StatusPill status={readings.car_presence ? 'warning' : 'safe'} text={readings.car_presence ? 'OCCUPIED' : 'CLEAR'} />
+          </div>
+        </PanelCard>
+
+        <PanelCard title="Kitchen" icon={Flame}>
+          <div className="sn-security-item">
+            <Flame size={16} className="sn-security-icon" />
+            <span>Flame sensor</span>
+            <StatusPill status={readings.flame ? 'critical' : 'safe'} text={readings.flame ? 'FIRE' : 'SAFE'} />
+          </div>
+        </PanelCard>
+
+        <PanelCard title="Room" icon={Radio}>
+          <div className="sn-security-item">
+            <Radio size={16} className="sn-security-icon" />
+            <span>Motion (PIR)</span>
+            <StatusPill status={readings.motion ? 'warning' : 'safe'} text={readings.motion ? 'DETECTED' : 'IDLE'} />
+          </div>
+        </PanelCard>
       </div>
 
-      {/* ROW 2: 3-Column Advanced Controls */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', marginBottom: '24px' }}>
-        
-        {/* COLUMN 1: AI, Power, & Structural (MPU6050 & ACS712) */}
-        <div className="glass-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <BrainCircuit size={18} style={{ color: '#C6813F' }} />
-            <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1rem', fontWeight: 700 }}>AI & Structural Health</span>
-          </div>
+      <div className="sn-dashboard-main">
+        {/* Temperature trend chart */}
+        <PanelCard title="Temperature — Last 24 Readings" icon={Thermometer} className="sn-chart-panel">
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={history}>
+              <defs>
+                <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent-copper-bright)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--accent-copper-bright)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+              <XAxis dataKey="time" stroke="var(--text-secondary)" fontSize={11} />
+              <YAxis stroke="var(--text-secondary)" fontSize={11} domain={['auto', 'auto']} />
+              <Tooltip contentStyle={{ background: 'var(--bg-panel-raised)', border: '1px solid var(--border-subtle)', borderRadius: 8 }} />
+              <Area type="monotone" dataKey="temp" stroke="var(--accent-copper-bright)" fill="url(#tempGradient)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </PanelCard>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Structural Vibration (MPU6050) */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>
-                  <Activity size={14} /> Seismic / Vibration
-                </span>
-                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.4rem', fontWeight: 'bold' }}>{metrics.seismic_vibration.toFixed(3)} <span style={{ fontSize: '0.8rem', color: '#8C95A3' }}>G-FORCE</span></span>
-              </div>
-              <div className="live-dot" />
-            </div>
-
-            {/* Power Calc */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>
-                  <Zap size={14} /> Est. Load Wattage
-                </span>
-                <span style={{ fontFamily: 'JetBrains Mono', color: '#3B82F6', fontSize: '1.4rem', fontWeight: 'bold' }}>{metrics.power_watts} <span style={{ fontSize: '0.8rem', color: '#8C95A3' }}>W</span></span>
-              </div>
-            </div>
-
-            <button onClick={handleDownloadReport} disabled={isDownloading} style={{ width: '100%', background: 'linear-gradient(135deg, rgba(198, 129, 63, 0.2) 0%, rgba(198, 129, 63, 0.05) 100%)', border: '1px solid rgba(198, 129, 63, 0.4)', color: '#EDEFF3', padding: '14px', borderRadius: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: isDownloading ? 'wait' : 'pointer', fontFamily: 'JetBrains Mono', fontWeight: 700, fontSize: '0.8rem', transition: 'all 0.2s', marginTop: 'auto' }}>
-              {isDownloading ? <Activity size={16} className="lucide-spin" /> : <Download size={16} />}
-              {isDownloading ? 'COMPILING_DATA...' : 'GENERATE_AI_REPORT'}
+        {/* Quick actuator controls */}
+        <PanelCard title="Quick Controls" icon={Power}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <ToggleSwitch label="Room Lighting" icon={Lightbulb} checked={!!readings.light_relay} onChange={toggleLight} />
+            <ToggleSwitch label="Cooling Fan" icon={Fan} checked={!!readings.fan_relay} onChange={toggleFan} />
+            <button className="sn-unlock-btn" onClick={unlockGate} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <DoorOpen size={16} /> Unlock Gate
             </button>
+            {energyToday !== null && (
+              <div className="sn-stat-row" style={{ marginTop: 8 }}>
+                <span className="label-eyebrow">Today's usage</span>
+                <span><span className="sn-stat-value">{energyToday}</span><span className="sn-stat-unit">kWh</span></span>
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* COLUMN 2: Access & Perimeter (RFID, Servo, Ultrasonic 1) */}
-        <div className="glass-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <Unlock size={18} style={{ color: '#4CAF7D' }} />
-            <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1rem', fontWeight: 700 }}>Perimeter & Access</span>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            
-            {/* Gate Control */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ display: 'block', fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.9rem', fontWeight: 600 }}>Front Gate Lock (Servo)</span>
-                <span style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.75rem' }}>Remote GUI Override</span>
-              </div>
-              <button onClick={() => dispatchCommand('door_unlocked', 'unlock_door')} style={{ background: controls.door_unlocked ? '#4CAF7D' : 'rgba(255,255,255,0.05)', color: controls.door_unlocked ? '#12161B' : '#EDEFF3', border: controls.door_unlocked ? 'none' : '1px solid rgba(255,255,255,0.1)', padding: '8px 20px', borderRadius: '100px', fontFamily: 'JetBrains Mono', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem', transition: 'all 0.2s' }}>
-                {controls.door_unlocked ? 'UNLOCKED' : 'LOCKED'}
-              </button>
-            </div>
-
-            {/* Garage Sonar */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Car size={24} style={{ color: metrics.car_detected ? '#C6813F' : '#8C95A3' }} />
-                <div>
-                  <span style={{ display: 'block', fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.9rem', fontWeight: 600 }}>Garage Bay (Ultrasonic 1)</span>
-                  <span style={{ fontFamily: 'JetBrains Mono', color: metrics.car_detected ? '#C6813F' : '#8C95A3', fontSize: '0.75rem', fontWeight: 700 }}>
-                    {metrics.car_detected ? `OCCUPIED // ${metrics.garage_distance_cm}cm` : `CLEAR // ${metrics.garage_distance_cm}cm`}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* RFID Log */}
-            <div className="telemetry-box" style={{ marginTop: 'auto' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
-                <History size={14} /> Last RFID Scan (RC522)
-              </span>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.9rem' }}>{metrics.last_rfid_user}</span>
-                <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem' }}>{metrics.last_rfid_time}</span>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        {/* COLUMN 3: Internal Environment (Relays & PIR) */}
-        <div className="glass-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <Zap size={18} style={{ color: '#E0A868' }} />
-            <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1rem', fontWeight: 700 }}>Internal Actors</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* Actuators */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Lightbulb size={20} style={{ color: controls.light_on ? '#E0A868' : '#8C95A3' }} />
-                <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.95rem', fontWeight: 600 }}>Primary Lighting (Relay)</span>
-              </div>
-              <input type="checkbox" className="smart-toggle" checked={controls.light_on} onChange={(e) => dispatchCommand('light_on', e.target.checked ? 'light_on' : 'light_off')} />
-            </div>
-
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Fan size={20} style={{ color: controls.fan_on ? '#3B82F6' : '#8C95A3' }} />
-                <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.95rem', fontWeight: 600 }}>Cooling Fan (L298N)</span>
-              </div>
-              <input type="checkbox" className="smart-toggle" checked={controls.fan_on} onChange={(e) => dispatchCommand('fan_on', e.target.checked ? 'fan_on' : 'fan_off')} />
-            </div>
-
-            {/* PIR Status */}
-            <div className="telemetry-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', border: metrics.motion ? '1px solid rgba(198, 129, 63, 0.4)' : '' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Radio size={20} style={{ color: metrics.motion ? '#C6813F' : '#8C95A3' }} />
-                <div>
-                  <span style={{ display: 'block', fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.9rem', fontWeight: 600 }}>Room Presence (PIR)</span>
-                  <span style={{ fontFamily: 'JetBrains Mono', color: metrics.motion ? '#C6813F' : '#8C95A3', fontSize: '0.75rem', fontWeight: 700 }}>
-                    {metrics.motion ? 'MOTION_DETECTED' : 'ZONE_IDLE'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
+        </PanelCard>
       </div>
 
-      {/* ROW 3: Hazard & Emergency Subsystems */}
-      <div className="glass-panel">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <ShieldAlert size={18} style={{ color: '#E15554' }} />
-          <span style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1rem', fontWeight: 700 }}>Emergency Hazard Bus</span>
-        </div>
+      <div className="sn-dashboard-lower">
+        <PanelCard title="Water Leak" icon={Droplets}>
+          <StatusPill status={readings.water ? 'critical' : 'safe'} text={readings.water ? 'LEAK DETECTED' : 'DRY'} />
+        </PanelCard>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-          
-          <div className="hazard-card" style={{ background: metrics.flame_detected ? 'rgba(225,85,84,0.1)' : 'rgba(13, 17, 23, 0.5)', borderColor: metrics.flame_detected ? '#E15554' : 'rgba(255,255,255,0.02)' }}>
-            <div style={{ background: metrics.flame_detected ? '#E15554' : 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '50%' }}>
-              <Flame size={24} style={{ color: metrics.flame_detected ? '#fff' : '#8C95A3' }} />
-            </div>
-            <div>
-              <span style={{ display: 'block', fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.95rem', fontWeight: 600 }}>Kitchen Fire Array</span>
-              <span style={{ fontFamily: 'JetBrains Mono', color: metrics.flame_detected ? '#E15554' : '#4CAF7D', fontSize: '0.8rem', fontWeight: 700 }}>{metrics.flame_detected ? 'CRITICAL_FIRE' : 'SAFE'}</span>
-            </div>
-          </div>
+        <PanelCard title="Structural Vibration" icon={Wind}>
+          <StatusPill status={readings.vibration ? 'warning' : 'safe'} text={readings.vibration ? 'VIBRATION DETECTED' : 'STABLE'} />
+        </PanelCard>
 
-          <div className="hazard-card" style={{ background: metrics.water_leak ? 'rgba(225,85,84,0.1)' : 'rgba(13, 17, 23, 0.5)', borderColor: metrics.water_leak ? '#E15554' : 'rgba(255,255,255,0.02)' }}>
-            <div style={{ background: metrics.water_leak ? '#3B82F6' : 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '50%' }}>
-              <Droplets size={24} style={{ color: metrics.water_leak ? '#fff' : '#8C95A3' }} />
-            </div>
-            <div>
-              <span style={{ display: 'block', fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '0.95rem', fontWeight: 600 }}>Plumbing Integrity</span>
-              <span style={{ fontFamily: 'JetBrains Mono', color: metrics.water_leak ? '#E15554' : '#4CAF7D', fontSize: '0.8rem', fontWeight: 700 }}>{metrics.water_leak ? 'LEAK_DETECTED' : 'DRY'}</span>
-            </div>
-          </div>
-
-        </div>
+        <PanelCard title="Power Overload" icon={Zap}>
+          <StatusPill status={currentStatus} text={currentStatus === 'safe' ? 'NORMAL LOAD' : currentStatus === 'warning' ? 'ELEVATED' : 'OVERLOAD'} />
+        </PanelCard>
       </div>
 
+      {/* Recent events */}
+      <PanelCard title="Recent Events" icon={ShieldAlert} className="sn-chart-panel" style={{ marginTop: 20 }}>
+        <div className="sn-history-feed">
+          {alerts.length === 0 && (
+            <p className="label-eyebrow" style={{ padding: '8px 0' }}>No unread alerts — system nominal.</p>
+          )}
+          {alerts.map((a) => (
+            <div key={a.id} className="sn-history-item">
+              <ShieldAlert size={16} className={`sn-history-icon sn-history-${a.severity}`} />
+              <div className="sn-history-text">
+                <div className="sn-history-top">
+                  <span className="sn-history-type">{a.type}</span>
+                </div>
+                <span className="sn-history-message">{a.message}</span>
+                <span className="sn-history-time">{new Date(a.timestamp || a.created_at).toLocaleString()}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </PanelCard>
     </div>
   );
-} 
+}

@@ -7,6 +7,7 @@ from .models import Household, Membership
 from django.contrib.auth import authenticate
 
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
