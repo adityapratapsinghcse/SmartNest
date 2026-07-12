@@ -14,6 +14,11 @@ from .models import RFIDCard
 from .serializers import RFIDCardSerializer
 
 
+
+GARAGE_RESOLVING_ACTIONS = {'garage_open', 'garage_deny'}
+DOOR_LOCK_ACTIONS = {'lock_door': 'locked', 'unlock_door': 'unlocked'}
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def device_list_create(request):
