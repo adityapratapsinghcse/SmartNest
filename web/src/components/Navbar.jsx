@@ -9,6 +9,7 @@ import { NotificationBell } from './NotificationBell';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/security', label: 'Security', icon: ShieldCheck },
   { to: '/climate', label: 'Climate', icon: Thermometer },
   { to: '/safety', label: 'Safety', icon: AlertTriangle },
   { to: '/energy', label: 'Energy', icon: Zap },

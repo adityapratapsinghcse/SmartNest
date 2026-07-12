@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Climate from './pages/Climate';
 import Safety from './pages/Safety';
+import Security from './pages/Security';
 import Energy from './pages/Energy';
 import Household from './pages/Household';
 import Profile from './pages/Profile';
@@ -65,6 +66,15 @@ function AppRoutes() {
         element={
           <ProtectedLayout>
             <Safety />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/security"
+        element={
+          <ProtectedLayout>
+            <Security />
           </ProtectedLayout>
         }
       />

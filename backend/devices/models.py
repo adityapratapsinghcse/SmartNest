@@ -22,7 +22,12 @@ class Device(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     garage_status = models.CharField(
         max_length=10,
-        choices=[('vacant', 'Vacant'), ('occupied', 'Occupied'), ('pending', 'Awaiting Confirmation')],
+        choices=[
+            ('vacant', 'Vacant'),
+            ('occupied', 'Occupied'),
+            ('pending', 'Awaiting Confirmation'),
+            ('opening', 'Opening'),
+        ],
         default='vacant',
     )
     door_status = models.CharField(

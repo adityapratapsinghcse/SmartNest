@@ -7,7 +7,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
 import GaragePromptModal from '../components/GaragePromptModal';
 
-export default function Safety() {
+export default function Security() {
   const { householdId, householdName } = useAuth();
   const [device, setDevice] = useState(null);
   const [garageStatus, setGarageStatus] = useState('vacant');
@@ -61,7 +61,7 @@ export default function Safety() {
     <div className="sn-page">
       <div className="sn-page-header">
         <div>
-          <h1 className="sn-page-title">Safety</h1>
+          <h1 className="sn-page-title">Security</h1>
           <p className="sn-page-subtitle">Garage gate and home door, all in one place — {householdName}</p>
         </div>
       </div>

@@ -85,7 +85,7 @@ def acknowledge_command(request):
     command.acknowledged_at = timezone.now()
     command.save()
 
-    if command.action in GARAGE_RESOLVING_ACTIONS and command.device.garage_status == 'pending':
+    if command.action in GARAGE_RESOLVING_ACTIONS and command.device.garage_status in ('pending', 'opening'):
         command.device.garage_status = 'vacant'
         command.device.save(update_fields=['garage_status'])
 
