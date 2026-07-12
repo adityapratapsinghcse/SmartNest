@@ -5,7 +5,7 @@ from django.utils import timezone
 from .models import Device, Command, EnergyLog
 from .serializers import DeviceSerializer, CommandSerializer, EnergyLogSerializer
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated , AllowAny
 from collections import defaultdict
 from datetime import timedelta
 from django.utils import timezone
@@ -50,40 +50,51 @@ def send_command(request):
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def pending_commands(request):
     """
-    GET /api/commands/pending/?device_id=1
-    ESP32 polls this endpoint to check if the dashboard sent it anything to do.
+    GET /api/commands/pending/
+    Header: X-Device-Key: <device's secret key>
+    ESP32 polls this to check if the dashboard sent it anything to do.
+    Device is identified purely by its key now - no device_id query param
+    needed or trusted, so one board can never fetch another's commands.
     """
-    device_id = request.query_params.get('device_id')
-    if not device_id:
-        return Response({"error": "device_id query param required"}, status=400)
+    device_key = request.headers.get('X-Device-Key')
+    if not device_key:
+        return Response({"error": "Device key missing"}, status=401)
 
-    commands = Command.objects.filter(device_id=device_id, status='pending')
+    try:
+        device = Device.objects.get(device_key=device_key)
+    except Device.DoesNotExist:
+        return Response({"error": "Invalid device key"}, status=401)
+
+    commands = Command.objects.filter(device=device, status='pending')
     serializer = CommandSerializer(commands, many=True)
     return Response(serializer.data)
 
 
-# Command actions that resolve a garage "awaiting confirmation" state either way
-GARAGE_RESOLVING_ACTIONS = {'garage_open', 'garage_deny', 'open_gate', 'deny_gate', 'close_gate'}
-
-# Command actions that set the front door's lock state once the ESP32 has
-# actually carried them out. Previously nothing wrote to door_status at all —
-# the field existed on the model/serializer but was permanently stuck on its
-# 'locked' default no matter what the dashboard did.
-DOOR_LOCK_ACTIONS = {'lock_door': 'locked', 'unlock_door': 'unlocked'}
-
-
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def acknowledge_command(request):
     """
     POST /api/commands/ack/
+    Header: X-Device-Key: <device's secret key>
     Body: {"command_id": 5}
     ESP32 calls this after executing a command, so it doesn't run twice.
+    Scoped so a device can only ack its own commands.
     """
+    device_key = request.headers.get('X-Device-Key')
+    if not device_key:
+        return Response({"error": "Device key missing"}, status=401)
+
+    try:
+        device = Device.objects.get(device_key=device_key)
+    except Device.DoesNotExist:
+        return Response({"error": "Invalid device key"}, status=401)
+
     command_id = request.data.get('command_id')
     try:
-        command = Command.objects.get(id=command_id)
+        command = Command.objects.get(id=command_id, device=device)
     except Command.DoesNotExist:
         return Response({"error": "Command not found"}, status=404)
 
@@ -127,7 +138,6 @@ def acknowledge_command(request):
         )
 
     return Response(CommandSerializer(command).data)
-
 
 @api_view(['GET'])
 def energy_daily(request):
