@@ -51,6 +51,41 @@ body {
   color: var(--text-secondary);
 }
 
+/* FIX: used by Climate.jsx, Energy.jsx, Safety.jsx, and Security.jsx's
+   refresh buttons, but was never actually defined — those buttons have
+   always rendered as unstyled default <button> elements. */
+.sn-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.sn-icon-btn:hover {
+  border-color: rgba(255,255,255,0.25);
+  color: var(--text-primary);
+}
+
+/* FIX: same story as .sn-icon-btn above — referenced by every page's
+   loading state (App.jsx, Dashboard, Climate, Energy, Safety, Security)
+   but never defined, so loading states rendered as plain unstyled text. */
+.sn-page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

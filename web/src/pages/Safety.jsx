@@ -1,453 +1,373 @@
-import { useState, useEffect } from 'react';
-import { Flame, Wind, Droplet, Activity, Siren, Power, ShieldAlert, AlertTriangle, Volume2, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Flame, Wind, Activity, AlertTriangle, Bell, CheckCircle2, Radio,
+  Thermometer, DoorOpen, Zap, Droplet, Car, ShieldAlert, Power, Volume2,
+  RefreshCw, CheckCheck,
+} from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
-import DialGauge from '../components/ui/DialGauge';
 import StatusPill from '../components/ui/StatusPill';
-import LiveDot from '../components/ui/LiveDot';
 import client from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
 
+const ALERT_ICON = {
+  fire: Flame, gas_leak: Wind, water_low: Droplet, overcurrent: Zap,
+  intrusion: Radio, window_open: DoorOpen, vibration: Activity,
+  rfid_denied: ShieldAlert, car_detected: Car, system: AlertTriangle,
+};
+
+function timeAgo(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function StatCard({ icon: Icon, label, value, sub, status }) {
+  const color = { safe: 'var(--status-safe)', warning: 'var(--status-warning)', critical: 'var(--status-critical)' }[status];
+  return (
+    <PanelCard className="sn-stat-card">
+      <div className="sn-stat-icon-circle" style={{ background: `${color}22`, color }}>
+        <Icon size={22} />
+      </div>
+      <div className="sn-stat-card-body">
+        <div className="sn-stat-card-label">{label}</div>
+        <div className="sn-stat-card-value">{value}</div>
+        <div className="sn-stat-card-status" style={{ color }}>{sub}</div>
+      </div>
+    </PanelCard>
+  );
+}
+
 export default function Safety() {
-  const { householdId } = useAuth();
+  const { householdId, householdName } = useAuth();
   const [device, setDevice] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [gas, setGas] = useState(0);
+
+  const [motion, setMotion] = useState(false);
+  const [gas, setGas] = useState(null);
   const [flame, setFlame] = useState(false);
-  const [waterLeak, setWaterLeak] = useState(false);
-  const [current, setCurrent] = useState(0);
+  const [temperature, setTemperature] = useState(null);
   const [vibration, setVibration] = useState(false);
-  const [waveform, setWaveform] = useState(Array(40).fill(9.8));
-  const [history, setHistory] = useState([]);
   const [cutoffOn, setCutoffOn] = useState(false);
 
-  // New interactive safety features
-  const [alarmSirenActive, setAlarmSirenActive] = useState(false);
+  const [alerts, setAlerts] = useState([]);      // recent, for Recent Activity
+  const [unresolvedAlerts, setUnresolvedAlerts] = useState([]); // is_read=false, for Active Alerts panel
 
-  const { lastMessage } = useWebSocket('/ws/sensors/', householdId);
+  const [sirenActive, setSirenActive] = useState(false);
+  const [cutoffBusy, setCutoffBusy] = useState(false);
+
+  const { lastMessage: sensorMessage } = useWebSocket('/ws/sensors/', householdId);
   const { lastMessage: alertMessage } = useWebSocket('/ws/alerts/', householdId);
 
-  const fetchSafetyData = async () => {
+  const fetchAll = useCallback(async () => {
     if (!householdId) return;
     try {
       const devicesRes = await client.get('/api/devices/');
       if (devicesRes.data.length === 0) { setLoading(false); return; }
-      const primaryDevice = devicesRes.data[0];
-      setDevice(primaryDevice);
+      const d = devicesRes.data[0];
+      setDevice(d);
 
-      const [latestRes, alertsRes] = await Promise.all([
-        client.get(`/api/sensors/latest/?device_id=${primaryDevice.id}`),
-        client.get(`/api/alerts/?device_id=${primaryDevice.id}`),
+      const [latestRes, allAlertsRes, unreadRes] = await Promise.all([
+        client.get(`/api/sensors/latest/?device_id=${d.id}`),
+        client.get(`/api/alerts/?device_id=${d.id}`),
+        client.get(`/api/alerts/?device_id=${d.id}&is_read=false`),
       ]);
+
       latestRes.data.forEach((r) => {
-        if (r.sensor_type === 'gas') setGas(r.value);
+        if (r.sensor_type === 'motion') setMotion(r.value === 1);
+        if (r.sensor_type === 'gas') setGas({ value: r.value, unit: r.unit });
         if (r.sensor_type === 'flame') setFlame(r.value === 1);
-        if (r.sensor_type === 'water') setWaterLeak(r.value === 1);
-        if (r.sensor_type === 'current') setCurrent(r.value);
+        if (r.sensor_type === 'temperature') setTemperature({ value: r.value, unit: r.unit });
         if (r.sensor_type === 'vibration') setVibration(r.value === 1);
         if (r.sensor_type === 'cutoff_relay') setCutoffOn(r.value === 1);
       });
-      setHistory(alertsRes.data.slice(0, 10));
+
+      setAlerts(allAlertsRes.data.slice(0, 8));
+      setUnresolvedAlerts(unreadRes.data);
     } catch (err) {
       console.error('Failed to load safety data:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchSafetyState();
   }, [householdId]);
 
-  const fetchSafetyState = () => {
-    fetchSafetyData();
-  };
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   useEffect(() => {
-    if (!lastMessage) return;
-    if (lastMessage.gas_percent !== undefined) setGas(lastMessage.gas_percent);
-    if (lastMessage.flame_detected !== undefined) setFlame(lastMessage.flame_detected);
-    if (lastMessage.water_leak !== undefined) setWaterLeak(lastMessage.water_leak);
-    if (lastMessage.current_amps !== undefined) setCurrent(lastMessage.current_amps);
-    if (lastMessage.vibration_detected !== undefined) setVibration(lastMessage.vibration_detected);
-    if (lastMessage.cutoff_on !== undefined) setCutoffOn(lastMessage.cutoff_on);
-    if (lastMessage.vibration_deviation !== undefined) {
-      setWaveform((prev) => [...prev.slice(1), 9.8 + lastMessage.vibration_deviation]);
-    }
-  }, [lastMessage]);
+    if (!sensorMessage) return;
+    if (sensorMessage.motion !== undefined) setMotion(sensorMessage.motion);
+    if (sensorMessage.gas_percent !== undefined) setGas({ value: sensorMessage.gas_percent, unit: '%' });
+    if (sensorMessage.flame_detected !== undefined) setFlame(sensorMessage.flame_detected);
+    if (sensorMessage.temperature !== undefined) setTemperature({ value: sensorMessage.temperature, unit: 'C' });
+    if (sensorMessage.vibration_detected !== undefined) setVibration(sensorMessage.vibration_detected);
+    if (sensorMessage.cutoff_on !== undefined) setCutoffOn(sensorMessage.cutoff_on);
+  }, [sensorMessage]);
 
   useEffect(() => {
-    if (!alertMessage) return;
-    setHistory((h) => [{
-      id: alertMessage.id || Date.now(),
-      type: alertMessage.type || 'SYSTEM_ALERT',
-      severity: alertMessage.severity || 'critical',
-      message: alertMessage.message || 'Safety threshold crossed.',
-      timestamp: new Date().toISOString(),
-    }, ...h].slice(0, 10));
+    if (!alertMessage || alertMessage.kind !== 'alert' || alertMessage.type === 'rfid_result') return;
+    const newAlert = {
+      id: alertMessage.id,
+      type: alertMessage.type,
+      severity: alertMessage.severity,
+      message: alertMessage.message,
+      timestamp: alertMessage.timestamp || new Date().toISOString(),
+      is_read: false,
+    };
+    setAlerts((prev) => [newAlert, ...prev].slice(0, 8));
+    setUnresolvedAlerts((prev) => [newAlert, ...prev]);
   }, [alertMessage]);
 
   const toggleCutoff = async () => {
-    if (!device) return;
-    const nextState = !cutoffOn;
-    setCutoffOn(nextState);
+    if (!device || cutoffBusy) return;
+    setCutoffBusy(true);
+    const next = !cutoffOn;
+    setCutoffOn(next); // optimistic — no ack loop exists for this relay yet
     try {
-      await client.post('/api/commands/send/', {
-        device: device.id,
-        action: nextState ? 'cutoff_on' : 'cutoff_off'
-      });
+      await client.post('/api/commands/send/', { device: device.id, action: next ? 'cutoff_on' : 'cutoff_off' });
     } catch (err) {
-      setCutoffOn(!nextState);
-      console.error('Failed to toggle cutoff relay:', err);
+      console.error('Cutoff command failed:', err);
+      setCutoffOn(!next);
+    } finally {
+      setCutoffBusy(false);
     }
   };
 
-  const handleTestSiren = async () => {
-    const nextSirenState = !alarmSirenActive;
-    setAlarmSirenActive(nextSirenState);
+  const testSiren = async () => {
+    if (!device) return;
+    const next = !sirenActive;
+    setSirenActive(next); // manual test trigger, fire-and-forget — no backend siren-state field exists
     try {
-      await client.post('/api/commands/send/', {
-        device: device.id,
-        action: nextSirenState ? 'siren_on' : 'siren_off'
-      });
+      await client.post('/api/commands/send/', { device: device.id, action: next ? 'siren_on' : 'siren_off' });
     } catch (err) {
       console.error('Siren command failed:', err);
     }
   };
 
-  const emergencyCutoff = cutoffOn;
-  const waveformPath = waveform.map((v, i) => `${(i / (waveform.length - 1)) * 300},${60 - (v - 9.8) * 15}`).join(' L ');
+  const acknowledgeAll = async () => {
+    try {
+      await Promise.all(unresolvedAlerts.map((a) => client.post('/api/alerts/read/', { alert_id: a.id })));
+      setUnresolvedAlerts([]);
+      setAlerts((prev) => prev.map((a) => ({ ...a, is_read: true })));
+    } catch (err) {
+      console.error('Failed to acknowledge alerts:', err);
+    }
+  };
 
-  if (loading) return <div className="sn-page-loading">Syncing safety bus nodes...</div>;
+  if (loading) return <div className="sn-page-loading">Loading safety…</div>;
 
   if (!device) {
     return (
       <div className="sn-page">
-        <h1 className="sn-page-title">Safety Systems</h1>
-        <p className="sn-page-subtitle">No safety monitors discovered. Register your ESP32 main board to initialize hazard monitoring.</p>
+        <h1 className="sn-page-title">Safety & Alarms</h1>
+        <p className="sn-page-subtitle">No devices registered yet for {householdName}.</p>
       </div>
     );
   }
 
+  // Visual coding for the "All Sensors Status" list — binary Normal/Alert,
+  // matching the same gas thresholds already used elsewhere in this app.
+  const gasState = gas === null ? null : gas.value > 30 ? 'critical' : 'safe';
+  const warningCount = unresolvedAlerts.filter((a) => a.severity === 'warning').length;
+
+  const sensorRows = [
+    { key: 'motion', icon: Radio, label: 'PIR Motion Sensor', ready: true, alert: motion, text: motion ? 'Motion Detected' : 'No Motion' },
+    { key: 'gas', icon: Wind, label: 'Gas Sensor (MQ-2)', ready: gas !== null, alert: gasState === 'critical', text: gas !== null ? `${Math.round(gas.value)}${gas.unit}` : 'No data' },
+    { key: 'flame', icon: Flame, label: 'Flame Sensor', ready: true, alert: flame, text: flame ? 'Flame Detected' : 'No Fire' },
+    { key: 'temperature', icon: Thermometer, label: 'Temperature (DHT22)', ready: temperature !== null, alert: false, text: temperature !== null ? `${Math.round(temperature.value)}°${temperature.unit}` : 'No data' },
+    { key: 'vibration', icon: Activity, label: 'Vibration / Earthquake Sensor', ready: true, alert: vibration, text: vibration ? 'Vibration Detected' : 'Stable' },
+  ];
+  const normalSensorCount = sensorRows.filter((s) => s.ready && !s.alert).length;
+  const totalSensorCount = sensorRows.filter((s) => s.ready).length;
+
+  const allSecure = unresolvedAlerts.length === 0;
+
   return (
-    <div className="sn-page safety-page">
+    <div className="sn-page">
       <style>{`
-        .safety-page {
-          padding: 20px;
+        .safety-alert-card {
+          display: flex; gap: 12px; padding: 14px 16px; border-radius: 10px;
+          background: var(--bg-deep); border-left: 3px solid var(--status-warning);
+          margin-bottom: 10px;
         }
-
-        .glass-panel {
-          background: rgba(27, 32, 40, 0.7); 
-          backdrop-filter: blur(25px); 
-          -webkit-backdrop-filter: blur(25px);
-          border: 1px solid rgba(255, 255, 255, 0.06); 
-          border-radius: 16px; 
-          padding: 24px;
-          box-shadow: 0 16px 36px rgba(0,0,0,0.35); 
-          display: flex; 
-          flex-direction: column;
+        .safety-alert-card.critical { border-left-color: var(--status-critical); }
+        .safety-alert-card-body { flex: 1; min-width: 0; }
+        .safety-alert-card-top { display: flex; justify-content: space-between; gap: 10px; }
+        .safety-alert-card-title { font-weight: 700; font-size: 13.5px; }
+        .safety-alert-card-msg { font-size: 12.5px; color: var(--text-secondary); margin-top: 2px; }
+        .safety-alert-card-meta { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11.5px; color: var(--text-secondary); }
+        .safety-sensor-row {
+          display: flex; align-items: center; gap: 10px; padding: 10px 0;
+          border-bottom: 1px solid var(--border-subtle); font-size: 13.5px;
         }
-
-        .stat-grid-row {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
-          margin-bottom: 20px;
-        }
-        @media (max-width: 900px) {
-          .stat-grid-row {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        .telemetry-stat-card {
-          background: rgba(18, 22, 27, 0.55);
-          border: 1px solid rgba(255,255,255,0.03);
-          border-radius: 12px;
-          padding: 16px;
-        }
-        .stat-row-inner {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 10px;
-        }
-        .stat-value {
-          font-size: 1.4rem;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-
-        .safety-layout-main {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-bottom: 20px;
-        }
-        @media (max-width: 900px) {
-          .safety-layout-main {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        /* Oscilloscope retro CRT green grid screen */
-        .oscilloscope-screen-box {
-          background: #06090c;
-          border: 1px solid rgba(198,129,63,0.15);
-          border-radius: 12px;
-          padding: 16px;
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          position: relative;
-        }
-        .oscilloscope-grid {
-          background: #020305;
-          border: 1px solid rgba(255,255,255,0.03);
-          border-radius: 6px;
-          height: 140px;
-          position: relative;
-          padding: 8px;
-          overflow: hidden;
-        }
-        .oscilloscope-grid::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background-size: 20px 20px;
-          background-image: 
-            linear-gradient(to right, rgba(198,129,63,0.05) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(198,129,63,0.05) 1px, transparent 1px);
-        }
-        .oscilloscope-waveform {
-          width: 100%;
-          height: 100%;
-          overflow: visible;
-        }
-
-        /* Large glowing cutoff breaker switch button */
-        .cutoff-layout {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 24px 0;
-          gap: 16px;
-        }
-        .btn-cutoff-breaker {
-          width: 96px;
-          height: 96px;
-          border-radius: 50%;
-          background: var(--bg-deep);
-          border: 4px solid rgba(255, 255, 255, 0.05);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text-secondary);
-          cursor: pointer;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
-        }
-        .btn-cutoff-breaker:hover {
-          border-color: var(--status-critical);
-          color: var(--status-critical);
-        }
-        .btn-cutoff-breaker.active {
-          background: var(--status-critical);
-          border-color: #fff;
-          color: #fff;
-          box-shadow: 0 0 25px var(--status-critical), inset 0 2px 5px rgba(0,0,0,0.4);
-        }
-
-        /* Alarm Siren Toggle switch */
-        .siren-override-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: var(--bg-deep);
-          border: 1px solid rgba(255, 255, 255, 0.03);
-          border-radius: 12px;
-          padding: 16px;
-          margin-top: 14px;
-        }
-        .siren-btn-override {
-          background: var(--bg-panel-raised);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: var(--text-secondary);
-          padding: 6px 14px;
-          border-radius: 6px;
-          font-family: var(--font-mono);
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .siren-btn-override.active {
-          background: var(--status-warning);
-          color: var(--bg-deep);
-          border-color: var(--status-warning);
-          box-shadow: 0 0 12px rgba(232, 163, 61, 0.35);
-        }
+        .safety-sensor-row:last-child { border-bottom: none; }
+        .safety-sensor-row > span:first-of-type { flex: 1; }
+        .safety-status-hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 10px 0 18px; }
+        .safety-quad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
+        .safety-quad-item { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+        .safety-quad-label { font-size: 11px; color: var(--text-secondary); }
+        .safety-quad-value { font-size: 12.5px; font-weight: 700; }
+        @media (max-width: 700px) { .safety-quad { grid-template-columns: repeat(2, 1fr); } }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="sn-page-header">
         <div>
-          <div className="sn-page-header">
-            <h1 className="sn-page-title">Safety & Alarms</h1>
-            <div className="sn-live-indicator">
-              <LiveDot color={emergencyCutoff || alarmSirenActive ? 'var(--status-critical)' : 'var(--status-safe)'} />
-              <span className="label-eyebrow" style={{ color: emergencyCutoff || alarmSirenActive ? 'var(--status-critical)' : 'var(--status-safe)' }}>
-                {emergencyCutoff ? 'EMERGENCY SHUTDOWN ACTIVE' : alarmSirenActive ? 'SIREN ACTIVE' : 'ALL PERIPHERALS NOMINAL'}
-              </span>
-            </div>
-          </div>
-          <p className="sn-page-subtitle readout">{device.name} // NODE_HAZARD_BUS_MONITOR_ON</p>
+          <h1 className="sn-page-title">Safety & Alarms</h1>
+          <p className="sn-page-subtitle">Monitor safety sensors and system alerts in real-time — {householdName}</p>
         </div>
-        <button className="sn-icon-btn" onClick={fetchSafetyState} title="Sync Safety Bus">
+        <button className="sn-icon-btn" onClick={fetchAll} title="Refresh">
           <RefreshCw size={14} />
         </button>
       </div>
 
-      {/* Stats row */}
-      <div className="stat-grid-row">
-        <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Gas (MQ-2)</span>
-          <div className="stat-row-inner">
-            <span className="stat-value readout">{Math.round(gas)}<span className="sn-stat-unit">%</span></span>
-            <StatusPill status={gas > 50 ? 'critical' : gas > 30 ? 'warning' : 'safe'} />
-          </div>
-        </div>
-
-        <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Flame status</span>
-          <div className="stat-row-inner">
-            <span className="stat-value readout">{flame ? 'Fire' : 'Clear'}</span>
-            <StatusPill status={flame ? 'critical' : 'safe'} text={flame ? 'FIRE' : 'CLEAR'} />
-          </div>
-        </div>
-
-        <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Water Leak</span>
-          <div className="stat-row-inner">
-            <span className="stat-value readout">{waterLeak ? 'Leak' : 'Dry'}</span>
-            <StatusPill status={waterLeak ? 'critical' : 'safe'} text={waterLeak ? 'LEAK' : 'DRY'} />
-          </div>
-        </div>
-
-        <div className="telemetry-stat-card">
-          <span className="label-eyebrow">MPU6050 Motion</span>
-          <div className="stat-row-inner">
-            <span className="stat-value readout">{vibration ? 'Active' : 'Stable'}</span>
-            <StatusPill status={vibration ? 'warning' : 'safe'} text={vibration ? 'VIBE' : 'STABLE'} />
-          </div>
-        </div>
+      {/* Top stat row */}
+      <div className="sn-grid sn-grid-4">
+        <StatCard icon={AlertTriangle} label="Active Alerts" value={unresolvedAlerts.length} sub={unresolvedAlerts.length === 0 ? 'All Clear' : 'Requires Attention'} status={unresolvedAlerts.length === 0 ? 'safe' : 'critical'} />
+        <StatCard icon={Bell} label="Warning Alerts" value={warningCount} sub="Monitor" status={warningCount === 0 ? 'safe' : 'warning'} />
+        <StatCard icon={CheckCircle2} label="Normal" value={normalSensorCount} sub="All Good" status="safe" />
+        <StatCard icon={Radio} label="Total Sensors" value={totalSensorCount} sub={device.is_online ? 'Online' : 'Offline'} status={device.is_online ? 'safe' : 'critical'} />
       </div>
 
-      {/* Main Layout Grid */}
-      <div className="safety-layout-main">
-        
-        {/* Left Side: Emergency Interrupter / Cutoff */}
-        <PanelCard 
-          title="Emergency Power Cutoff Switch" 
-          icon={Power} 
-          accent 
-          className={emergencyCutoff ? 'sn-cutoff-active' : ''}
-        >
-          <div className="cutoff-layout">
-            <button 
-              onClick={toggleCutoff} 
-              className={`btn-cutoff-breaker ${emergencyCutoff ? 'active' : ''}`}
-            >
-              <Power size={36} />
-            </button>
-            <span className="sn-cutoff-status" style={{ color: emergencyCutoff ? 'var(--status-critical)' : 'var(--status-safe)' }}>
-              {emergencyCutoff ? 'POWER TERMINATED' : 'BUS RELAY CLOSED (NOMINAL)'}
-            </span>
-            <p className="sn-cutoff-hint">
-              Bypasses electrical grid feed. Automatically triggers if air gas concentration crossings exceed 55%, flame registers, or ammeter draw crosses 3.2A.
+      <div className="sn-grid" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+        {/* Active Alerts */}
+        <PanelCard title="Active Alerts" icon={Bell} className="sn-chart-panel">
+          {unresolvedAlerts.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, textAlign: 'center', padding: '20px 0' }}>
+              No active alerts. Everything's quiet.
             </p>
-          </div>
-
-          {/* Siren Test Override Option */}
-          <div className="siren-override-row">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Volume2 size={20} style={{ color: alarmSirenActive ? 'var(--status-warning)' : 'var(--text-secondary)' }} />
-              <div>
-                <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem' }}>Ecosystem Siren override</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Flashes warning buzzer</span>
-              </div>
-            </div>
-            <button 
-              onClick={handleTestSiren}
-              className={`siren-btn-override ${alarmSirenActive ? 'active' : ''}`}
-            >
-              <Power size={12} />
-              <span>{alarmSirenActive ? 'ACTIVE' : 'TEST'}</span>
+          ) : (
+            unresolvedAlerts.map((a) => {
+              const Icon = ALERT_ICON[a.type] || AlertTriangle;
+              return (
+                <div key={a.id} className={`safety-alert-card ${a.severity === 'critical' ? 'critical' : ''}`}>
+                  <Icon size={18} style={{ color: a.severity === 'critical' ? 'var(--status-critical)' : 'var(--status-warning)', flexShrink: 0, marginTop: 2 }} />
+                  <div className="safety-alert-card-body">
+                    <div className="safety-alert-card-top">
+                      <span className="safety-alert-card-title">{a.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</span>
+                    </div>
+                    <div className="safety-alert-card-msg">{a.message}</div>
+                    <div className="safety-alert-card-meta">
+                      <span>Location: {device.location || 'Unspecified'}</span>
+                      <span>{timeAgo(a.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          {unresolvedAlerts.length > 0 && (
+            <button className="sn-btn-outline" style={{ width: '100%', marginTop: 6, justifyContent: 'center' }} onClick={acknowledgeAll}>
+              <CheckCheck size={14} /> Acknowledge All
             </button>
+          )}
+        </PanelCard>
+
+        {/* All Sensors Status */}
+        <PanelCard title="All Sensors Status" icon={CheckCircle2} className="sn-chart-panel">
+          {sensorRows.map((s) => (
+            <div key={s.key} className="safety-sensor-row">
+              <s.icon size={16} className="sn-security-icon" />
+              <span>{s.label}</span>
+              {s.ready ? (
+                <StatusPill status={s.alert ? 'critical' : 'safe'} text={s.alert ? 'ALERT' : 'NORMAL'} />
+              ) : (
+                <span className="label-eyebrow" style={{ color: 'var(--text-secondary)' }}>NO DATA</span>
+              )}
+              <span style={{ width: 110, textAlign: 'right', color: 'var(--text-secondary)', fontSize: 12.5 }}>{s.text}</span>
+            </div>
+          ))}
+        </PanelCard>
+      </div>
+
+      <div className="sn-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        {/* System Status */}
+        <PanelCard title="System Status" icon={ShieldAlert} className="sn-chart-panel">
+          <div className="safety-status-hero">
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: allSecure ? 'rgba(76,175,125,0.14)' : 'rgba(225,85,84,0.14)', marginBottom: 10,
+            }}>
+              <CheckCircle2 size={30} style={{ color: allSecure ? 'var(--status-safe)' : 'var(--status-critical)' }} />
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 15, color: allSecure ? 'var(--status-safe)' : 'var(--status-critical)' }}>
+              {allSecure ? 'All Systems Secure' : `${unresolvedAlerts.length} Alert${unresolvedAlerts.length > 1 ? 's' : ''} Need Attention`}
+            </span>
+            <span style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 3 }}>
+              {allSecure ? 'Your home is safe and all systems are operating normally.' : 'Review the Active Alerts panel above.'}
+            </span>
           </div>
 
-          <div className="sn-gauge-row" style={{ marginTop: '20px' }}>
-            <DialGauge value={gas} max={100} unit="%" label="Gas AQI" thresholds={{ warning: 30, critical: 55 }} size={96} />
-            <DialGauge value={current} max={5} unit="A" label="Current Draw" thresholds={{ warning: 2.5, critical: 3.2 }} size={96} />
+          {/* Real quad — replaces screenshot's fabricated "Alarms Armed / Response Enabled /
+              Backup Online" with fields that actually exist on the backend: always-on
+              monitoring, real board connectivity, the real cutoff relay state (with a
+              working toggle), and the real last-sync timestamp. */}
+          <div className="safety-quad">
+            <div className="safety-quad-item">
+              <ShieldAlert size={18} style={{ color: 'var(--status-safe)' }} />
+              <span className="safety-quad-label">Monitoring</span>
+              <span className="safety-quad-value">24/7 Active</span>
+            </div>
+            <div className="safety-quad-item">
+              <Radio size={18} style={{ color: device.is_online ? 'var(--status-safe)' : 'var(--status-critical)' }} />
+              <span className="safety-quad-label">Board</span>
+              <span className="safety-quad-value">{device.is_online ? 'Online' : 'Offline'}</span>
+            </div>
+            <div className="safety-quad-item">
+              <Power size={18} style={{ color: cutoffOn ? 'var(--status-critical)' : 'var(--status-safe)' }} />
+              <span className="safety-quad-label">Cutoff Relay</span>
+              <span className="safety-quad-value">{cutoffOn ? 'Engaged' : 'Nominal'}</span>
+            </div>
+            <div className="safety-quad-item">
+              <CheckCircle2 size={18} style={{ color: 'var(--text-secondary)' }} />
+              <span className="safety-quad-label">Last Sync</span>
+              <span className="safety-quad-value">{device.last_seen ? timeAgo(device.last_seen) : 'Never'}</span>
+            </div>
+          </div>
+
+          <div className="sn-btn-row">
+            <button className="sn-btn-outline" disabled={cutoffBusy} onClick={toggleCutoff}>
+              <Power size={14} /> {cutoffOn ? 'Restore Power' : 'Emergency Cutoff'}
+            </button>
+            <button className="sn-btn-outline" onClick={testSiren}>
+              <Volume2 size={14} /> {sirenActive ? 'Stop Siren' : 'Test Siren'}
+            </button>
           </div>
         </PanelCard>
 
-        {/* Right Side: Oscilloscope vibration magnitude screen */}
-        <section className="oscilloscope-screen-box">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Activity size={16} style={{ color: 'var(--accent-copper-bright)' }} />
-            <span className="label-eyebrow" style={{ color: 'var(--text-primary)' }}>Seismograph CRT Signal (MPU6050)</span>
+        {/* Recent Activity */}
+        <PanelCard title="Recent Activity" icon={Activity} className="sn-chart-panel">
+          <div className="sn-history-feed">
+            {alerts.length === 0 && <p className="label-eyebrow">No activity logged yet.</p>}
+            {alerts.map((a) => {
+              const Icon = ALERT_ICON[a.type] || AlertTriangle;
+              return (
+                <div key={a.id} className="sn-history-item">
+                  <Icon size={16} className={`sn-history-icon sn-history-${a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'safe'}`} />
+                  <div className="sn-history-text">
+                    <span className="sn-history-message">{a.message}</span>
+                    <span className="sn-history-time">{timeAgo(a.timestamp)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          <div className="oscilloscope-grid">
-            <svg viewBox="0 0 300 80" className="oscilloscope-waveform">
-              <line x1="0" y1="40" x2="300" y2="40" stroke="rgba(198,129,63,0.15)" strokeDasharray="3 3" />
-              <polyline
-                points={waveformPath}
-                fill="none"
-                stroke={vibration ? 'var(--status-critical)' : 'var(--accent-copper-bright)'}
-                strokeWidth="2.5"
-                style={{ transition: 'stroke 0.2s ease', filter: 'drop-shadow(0 0 4px var(--accent-copper-bright))' }}
-              />
-            </svg>
-          </div>
-          <p className="sn-waveform-caption" style={{ margin: 0 }}>
-            Real-time magnitude deviation vector readouts streaming from local 3-axis MPU6050 accelerometer sensor.
-          </p>
-        </section>
-
+        </PanelCard>
       </div>
 
-      {/* Alarm History log */}
-      <PanelCard title="Security & Safety alarm feed log" icon={Siren}>
-        <div className="sn-history-feed">
-          {history.length === 0 ? (
-            <p className="sn-page-subtitle" style={{ textAlign: 'center', padding: '20px 0' }}>
-              No critical alerts reported.
-            </p>
-          ) : (
-            history.map((h) => (
-              <div key={h.id} className="sn-history-item">
-                <ShieldAlert size={18} className={`sn-history-icon sn-history-${h.severity || 'info'}`} />
-                <div className="sn-history-text">
-                  <div className="sn-history-top">
-                    <span className="sn-history-type" style={{ fontFamily: 'var(--font-mono)' }}>{h.type?.toUpperCase()}</span>
-                    <StatusPill status={h.severity === 'info' ? 'safe' : h.severity} text={h.severity?.toUpperCase()} />
-                  </div>
-                  <span className="sn-history-message">{h.message}</span>
-                  <span className="sn-history-time">{new Date(h.timestamp).toLocaleString()}</span>
-                </div>
-              </div>
-            ))
-          )}
+      <div className="sn-home-banner" style={{ background: 'linear-gradient(120deg, rgba(76,175,125,0.12), rgba(76,175,125,0.03))', borderColor: 'rgba(76,175,125,0.25)' }}>
+        <div className="sn-home-banner-left">
+          <div className="sn-home-banner-icon" style={{ background: 'rgba(76,175,125,0.18)', color: 'var(--status-safe)' }}>
+            <ShieldAlert size={20} />
+          </div>
+          <div>
+            <div className="sn-home-banner-title">The Nexus Dome is actively monitoring your home for any safety threats.</div>
+            <div className="sn-home-banner-sub">You'll be notified immediately in case of any critical alerts.</div>
+          </div>
         </div>
-      </PanelCard>
-
+      </div>
     </div>
   );
 }
