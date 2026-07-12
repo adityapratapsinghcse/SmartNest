@@ -7,6 +7,13 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
 import GaragePromptModal from '../components/GaragePromptModal';
 
+const GARAGE_STATUS_DISPLAY = {
+  occupied: { status: 'warning', text: 'OCCUPIED' },
+  pending: { status: 'critical', text: 'AWAITING YOUR ANSWER' },
+  opening: { status: 'warning', text: 'OPENING…' },
+  vacant: { status: 'safe', text: 'VACANT' },
+};
+
 export default function Security() {
   const { householdId, householdName } = useAuth();
   const [device, setDevice] = useState(null);
@@ -39,6 +46,9 @@ export default function Security() {
       setPrompt(alertMessage);
       setGarageStatus('pending');
     }
+    if (alertMessage.kind === 'garage_status') {
+      setGarageStatus(alertMessage.garage_status);
+    }
     if (alertMessage.type === 'rfid_denied' || alertMessage.message?.toLowerCase().includes('door')) {
       // refresh access log tail without a full reload
       setAccessLog((prev) => [{ granted: !alertMessage.type?.includes('denied'), timestamp: new Date().toISOString(), method: 'RFID' }, ...prev].slice(0, 8));
@@ -55,7 +65,7 @@ export default function Security() {
     setPrompt(null);
   };
 
-  if (!device) return <div className="sn-page-loading">Loading safety…</div>;
+  if (!device) return <div className="sn-page-loading">Loading security…</div>;
 
   return (
     <div className="sn-page">
@@ -73,8 +83,8 @@ export default function Security() {
             <Car size={16} className="sn-security-icon" />
             <span>Bay status</span>
             <StatusPill
-              status={garageStatus === 'occupied' ? 'warning' : garageStatus === 'pending' ? 'critical' : 'safe'}
-              text={garageStatus === 'occupied' ? 'OCCUPIED' : garageStatus === 'pending' ? 'AWAITING YOUR ANSWER' : 'VACANT'}
+              status={(GARAGE_STATUS_DISPLAY[garageStatus] || GARAGE_STATUS_DISPLAY.vacant).status}
+              text={(GARAGE_STATUS_DISPLAY[garageStatus] || GARAGE_STATUS_DISPLAY.vacant).text}
             />
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, marginTop: 10 }}>
