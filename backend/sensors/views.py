@@ -68,24 +68,24 @@ def _queue_command_if_needed(device, action):
     if not Command.objects.filter(device=device, action=action, status='pending').exists():
         Command.objects.create(device=device, action=action, status='pending')
 
-if device.automation_enabled:
-    temperature = data.get('temperature')
-    current_fan_on = data.get('fan_on')
-    # Second line of defense against DHT22 noise, even if the firmware guard is in place
-    if temperature is not None and -40 < temperature < 80 and current_fan_on is not None:
-        if not current_fan_on and temperature >= AUTO_FAN_ON_TEMP:
-            _queue_command_if_needed(device, 'fan_on')
-        elif current_fan_on and temperature <= AUTO_FAN_OFF_TEMP:
-            _queue_command_if_needed(device, 'fan_off')
+    if device.automation_enabled:
+        temperature = data.get('temperature')
+        current_fan_on = data.get('fan_on')
+        # Second line of defense against DHT22 noise, even if the firmware guard is in place
+        if temperature is not None and -40 < temperature < 80 and current_fan_on is not None:
+            if not current_fan_on and temperature >= AUTO_FAN_ON_TEMP:
+                _queue_command_if_needed(device, 'fan_on')
+            elif current_fan_on and temperature <= AUTO_FAN_OFF_TEMP:
+                _queue_command_if_needed(device, 'fan_off')
 
-    light_percent = data.get('light_percent')
-    current_light_on = data.get('light_on')
-    if light_percent is not None and current_light_on is not None:
-        is_dark = light_percent < AUTO_DARK_THRESHOLD
-        if is_dark and not current_light_on:
-            _queue_command_if_needed(device, 'light_on')
-        elif not is_dark and current_light_on:
-            _queue_command_if_needed(device, 'light_off')
+        light_percent = data.get('light_percent')
+        current_light_on = data.get('light_on')
+        if light_percent is not None and current_light_on is not None:
+            is_dark = light_percent < AUTO_DARK_THRESHOLD
+            if is_dark and not current_light_on:
+                _queue_command_if_needed(device, 'light_on')
+            elif not is_dark and current_light_on:
+                _queue_command_if_needed(device, 'light_off')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
