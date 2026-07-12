@@ -13,6 +13,7 @@ from sensors.models import SensorReading
 from .models import RFIDCard
 from .serializers import RFIDCardSerializer
 
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def device_list_create(request):
@@ -32,6 +33,7 @@ def device_list_create(request):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['POST'])
 def send_command(request):
@@ -83,10 +85,6 @@ def acknowledge_command(request):
     command.acknowledged_at = timezone.now()
     command.save()
 
-    # If this was a garage-related command, clear the "pending" flag on the
-    # device now that the user's decision has actually been carried out —
-    # otherwise garage_status gets stuck on 'pending' forever after the
-    # first car detection and never triggers again.
     if command.action in GARAGE_RESOLVING_ACTIONS and command.device.garage_status == 'pending':
         command.device.garage_status = 'vacant'
         command.device.save(update_fields=['garage_status'])
@@ -115,8 +113,6 @@ def energy_summary(request):
     GET /api/energy/summary/?device_id=1
     Integrates real ACS712 current readings (Amps) into Watt-hours,
     assuming 230V mains. Returns today's total and a 7-day daily breakdown.
-    This is genuine derived data - if there's no sensor history yet, it
-    returns zeros/empty rather than inventing numbers.
     """
     user_households = request.user.memberships.values_list('household_id', flat=True)
     device_id = request.query_params.get('device_id')
@@ -137,7 +133,7 @@ def energy_summary(request):
     for r in readings:
         if prev is not None:
             dt_hours = (r.timestamp - prev.timestamp).total_seconds() / 3600
-            if 0 < dt_hours < 1:  # ignore gaps (device offline) so they don't skew totals
+            if 0 < dt_hours < 1:
                 avg_amps = (r.value + prev.value) / 2
                 watts = avg_amps * 230
                 kwh = (watts * dt_hours) / 1000
@@ -160,15 +156,10 @@ def energy_summary(request):
         "has_data": readings.exists(),
     })
 
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def register_push_token(request):
-    """
-    POST /api/devices/register-push-token/
-    Body: {"fcm_token": "..."}
-    Saves this user's FCM token on every Membership they have, so alerts
-    from any of their households reach this phone.
-    """
     fcm_token = request.data.get('fcm_token')
     if not fcm_token:
         return Response({"error": "fcm_token required"}, status=400)
@@ -213,3 +204,35 @@ def rfid_card_detail(request, card_id):
         serializer.save()
         return Response(serializer.data)
     return Response(serializer.errors, status=400)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def garage_confirm(request):
+    """
+    POST /api/commands/garage/confirm/
+    Body: {"device_id": 1, "confirm": true}
+    Called from the Security page's garage prompt modal when the user
+    answers "Yes, open" or "No, keep closed" to a car-detected event.
+    """
+    device_id = request.data.get('device_id')
+    confirm = request.data.get('confirm')
+
+    if device_id is None or confirm is None:
+        return Response({"error": "device_id and confirm are required"}, status=400)
+
+    user_households = request.user.memberships.values_list('household_id', flat=True)
+    try:
+        device = Device.objects.get(id=device_id, household_id__in=user_households)
+    except Device.DoesNotExist:
+        return Response({"error": "Device not found or not in your household"}, status=404)
+
+    action = 'garage_open' if confirm else 'garage_deny'
+    Command.objects.create(device=device, action=action, status='pending')
+
+    # Optimistic transitional state — acknowledge_command() clears this back
+    # to 'vacant' once the ESP32 actually reports the action was carried out.
+    device.garage_status = 'opening' if confirm else 'vacant'
+    device.save(update_fields=['garage_status'])
+
+    return Response({"garage_status": device.garage_status})

@@ -6,6 +6,7 @@ urlpatterns = [
     path('commands/send/', views.send_command, name='send-command'),
     path('commands/pending/', views.pending_commands, name='pending-commands'),
     path('commands/ack/', views.acknowledge_command, name='acknowledge-command'),
+    path('commands/garage/confirm/', views.garage_confirm, name='garage-confirm'),
     path('energy/daily/', views.energy_daily, name='energy-daily'),
     path('energy/summary/', views.energy_summary, name='energy-summary'),
     path('devices/register-push-token/', views.register_push_token, name='register-push-token'),

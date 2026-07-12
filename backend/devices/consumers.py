@@ -18,7 +18,7 @@ class SensorConsumer(AsyncWebsocketConsumer):
 
         allowed = await user_belongs_to_household(user, self.household_id)
         if not allowed:
-            await self.close(code=4401)  # custom code: unauthorized
+            await self.close(code=4401)
             return
 
         self.group_name = f"sensors_{self.household_id}"
@@ -52,4 +52,14 @@ class AlertConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def alert_update(self, event):
-        await self.send(text_data=json.dumps(event['data']))
+        # FIX: backend sends event['message'], not event['data']
+        payload = dict(event['message'])
+        payload['kind'] = 'alert'
+        await self.send(text_data=json.dumps(payload))
+
+    async def garage_prompt(self, event):
+        # FIX: this handler didn't exist before — every car_detected
+        # broadcast crashed the socket with AttributeError.
+        payload = dict(event['message'])
+        payload['kind'] = 'garage_prompt'
+        await self.send(text_data=json.dumps(payload))
