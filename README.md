@@ -212,8 +212,7 @@ The-Nexus-Dome/
 ## 1️⃣ Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/The-Nexus-Dome.git
-
+git clone https://github.com/adityapratapsinghcse/The-Nexus-Dome.git
 cd The-Nexus-Dome
 ```
 
