@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Thermometer, AlertTriangle, Zap,
-  Users, UserCircle, Menu, X, LogOut, HomeIcon, Settings as SettingsIcon,
+  Users, UserCircle, Menu, X, LogOut, Settings as SettingsIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { NotificationBell } from './NotificationBell';
+import logo from '../assets/brand/logo.svg';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -42,7 +43,7 @@ export default function Navbar() {
       <aside className="sn-sidebar">
         <div className="sn-sidebar-brand">
           <div className="sn-brand-mark">
-            <HomeIcon size={16} strokeWidth={2.5} />
+            <img src={logo} alt="" width={22} height={22} />
           </div>
           <div>
             <span className="sn-brand">THE NEXUS DOME</span>
@@ -91,7 +92,7 @@ export default function Navbar() {
 
         <div className="sn-brand-row">
           <div className="sn-brand-mark" style={{ width: 24, height: 24 }}>
-            <HomeIcon size={13} strokeWidth={2.5} />
+            <img src={logo} alt="" width={17} height={17} />
           </div>
           <span className="sn-brand" style={{ fontSize: 13 }}>NEXUS DOME</span>
         </div>
@@ -110,7 +111,7 @@ export default function Navbar() {
         <div className="sn-drawer-header">
           <div className="sn-brand-row">
             <div className="sn-brand-mark" style={{ width: 26, height: 26 }}>
-              <HomeIcon size={14} strokeWidth={2.5} />
+              <img src={logo} alt="" width={18} height={18} />
             </div>
             <span className="sn-brand" style={{ fontSize: 13 }}>NEXUS DOME</span>
           </div>

@@ -1,0 +1,27 @@
+{
+	"folders": [
+		{
+			"path": "C:/Users/adity/OneDrive/Documents/GitHub/Event-Project"
+		},
+		{
+			"path": "../../.."
+		},
+		{
+			"name": "smartnest_main",
+			"path": "../../firmware/smartnest_main"
+		},
+		{
+			"name": "smartnest-uno",
+			"path": "C:/Users/adity/OneDrive/Documents/PlatformIO/Projects/smartnest-uno"
+		},
+		{
+			"name": "smartnest-esp32",
+			"path": "C:/Users/adity/OneDrive/Documents/PlatformIO/Projects/smartnest-esp32"
+		},
+		{
+			"name": "smartnest-uno.",
+			"path": "C:/Users/adity/OneDrive/Documents/PlatformIO/Projects/smartnest-uno."
+		}
+	],
+	"settings": {}
+}
