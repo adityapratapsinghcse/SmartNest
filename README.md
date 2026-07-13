@@ -1,206 +1,440 @@
-# SmartNest — The Nexus Dome
+<div align="center">
 
-A full-stack smart home system: a Django/Channels backend, a React (Vite + Capacitor)
-web and mobile dashboard, and ESP32 + Arduino UNO firmware controlling real sensors,
-a keypad-based gate lock, and simulated actuators (fan, light).
+# 🏠 The Nexus Dome
+### AI Powered Smart Home Automation Platform
 
-The live deployment sleeps/stops from time to time (free-tier hosting), so this README
-covers running the whole stack locally — backend, frontend, and both firmware boards.
+<img src="docs/logo.png" width="180"/>
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Django](https://img.shields.io/badge/Django-5.x-green)
+![React](https://img.shields.io/badge/React-19-61DAFB)
+![ESP32](https://img.shields.io/badge/ESP32-IoT-red)
+![Arduino](https://img.shields.io/badge/Arduino-UNO-00979D)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
+![License](https://img.shields.io/badge/License-MIT-success)
+
+An intelligent **AI-powered Smart Home Automation Platform** that combines IoT devices, cloud computing, real-time communication, and mobile technology into one seamless ecosystem.
+
+**Monitor • Control • Secure • Automate**
+
+</div>
 
 ---
 
-## 1. Architecture
+# 📖 About
+
+The Nexus Dome is a complete Full Stack IoT Smart Home Automation System designed to provide intelligent monitoring, real-time automation, secure access control, and seamless device management.
+
+The system connects ESP32 and Arduino-based hardware with a Django cloud backend and a React web/mobile dashboard. Sensor data is streamed live to users through WebSockets, while automation commands travel securely from the dashboard back to the hardware.
+
+Unlike traditional automation projects, The Nexus Dome integrates:
+
+- 🏠 Smart Home Automation
+- 🌐 IoT Communication
+- ☁️ Cloud Computing
+- 📱 Mobile Application
+- 🔒 Smart Security
+- ⚡ Real-Time Updates
+- 🤖 Intelligent Automation
+
+---
+
+# ✨ Key Features
+
+## 🌡 Environmental Monitoring
+
+- Temperature Monitoring
+- Humidity Monitoring
+- Gas Leak Detection
+- Flame Detection
+- Motion Detection
+- Light Intensity Detection
+- Distance Measurement
+- Vibration Detection
+
+---
+
+## 🏡 Smart Home Control
+
+- Smart Light Control
+- Smart Fan Control
+- Garage Door Automation
+- Relay Based Appliance Control
+- Mobile Dashboard
+- Remote Device Access
+
+---
+
+## 🔐 Smart Security
+
+- Digital Keypad Lock
+- Secure PIN Verification
+- Access Logging
+- Buzzer Alarm
+- Motion Alerts
+- Household Authentication
+
+---
+
+## 📊 Live Dashboard
+
+- Real-Time Sensor Data
+- WebSocket Updates
+- Device Status
+- Activity Timeline
+- Live Notifications
+- User Authentication
+
+---
+
+## ☁️ Cloud Features
+
+- REST APIs
+- PostgreSQL Database
+- Device Registration
+- Household Management
+- Access Logs
+- Celery Background Tasks
+
+---
+
+# 🏗 System Architecture
 
 ```
-firmware/esp32   ── WiFi, sensors, servo, buzzer, backend HTTP calls, UART to UNO
-firmware/uno     ── Keypad input, sends entered code to ESP32 over UART
-backend/         ── Django + Django REST Framework + Channels (WebSockets) + Celery
-web/             ── React (Vite) dashboard; also wrapped via Capacitor for Android
+
+┌────────────────────────────┐
+│ React Web Dashboard │
+│ Android App │
+└────────────┬───────────────┘
+│
+REST APIs
+│
+┌────────────▼───────────────┐
+│ Django Backend │
+│ Django REST Framework │
+│ Channels │
+│ Celery │
+└────────────┬───────────────┘
+│
+WebSockets
+│
+┌────────────▼───────────────┐
+│ ESP32 Controller │
+└───────┬───────────┬────────┘
+│ │
+UART HTTP
+│ │
+Arduino UNO Cloud
+│
+┌────────────▼───────────────┐
+│ Sensors & Actuators │
+└────────────────────────────┘
+
 ```
 
-Data flow: sensors → ESP32 → `POST /api/sensors/data/` → Django → WebSocket push →
-web dashboard updates live. Commands flow the other way: dashboard button →
-`POST /api/commands/send/` → ESP32 polls `/api/commands/pending/` → acts → acks.
-Keypad codes: UNO → ESP32 (UART) → `POST /api/access/verify/` → granted/denied →
-gate servo + buzzer + logged to `AccessLog`.
+---
+
+# ⚙ Technology Stack
+
+## Frontend
+
+- React
+- Vite
+- Capacitor
+- HTML5
+- CSS3
+- JavaScript
 
 ---
 
-## 2. Prerequisites
+## Backend
 
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL (local install, or use a free Postgres from Railway/Neon/Supabase)
-- Redis (for Channels + Celery) — `redis-server` locally, or Docker
-- [PlatformIO](https://platformio.org/) — via VS Code extension, or `pip install platformio`
-- An ESP32 (DOIT DevKit V1) and an Arduino UNO, USB cables
+- Django
+- Django REST Framework
+- Django Channels
+- Celery
+- Redis
+- PostgreSQL
 
 ---
 
-## 3. Backend setup (Django)
+## IoT Hardware
+
+- ESP32
+- Arduino UNO
+- DHT11
+- MQ2 Gas Sensor
+- PIR Motion Sensor
+- Flame Sensor
+- LDR
+- HC-SR04 Ultrasonic Sensor
+- ADXL345 Accelerometer
+- Servo Motor
+- Relay Module
+- Buzzer
+- 4×4 Keypad
+
+---
+
+# 📂 Project Structure
+
+```
+
+The-Nexus-Dome/
+│
+├── backend/
+│ ├── Django
+│ ├── REST APIs
+│ ├── WebSockets
+│ └── Database
+│
+├── web/
+│ ├── React Dashboard
+│ ├── Android (Capacitor)
+│ └── UI Components
+│
+├── firmware/
+│ ├── esp32/
+│ └── uno/
+│
+├── docs/
+│ ├── Images
+│ └── README Assets
+│
+└── README.md
+
+```
+
+---
+
+# 🚀 Installation
+
+## 1️⃣ Clone Repository
+
+```bash
+git clone https://github.com/yourusername/The-Nexus-Dome.git
+
+cd The-Nexus-Dome
+```
+
+---
+
+## 2️⃣ Backend Setup
 
 ```bash
 cd backend
+
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+
+# Windows
+
+venv\Scripts\activate
+
+# Linux / Mac
+
+source venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-Create `backend/.env`:
+Create `.env`
 
 ```env
-SECRET_KEY=any-long-random-string-for-local-dev
+SECRET_KEY=your-secret-key
+
 DEBUG=True
-DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/smartnest
+
+DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/nexus
+
 REDIS_URL=redis://127.0.0.1:6379/0
+
 FIREBASE_CREDENTIALS_JSON={}
 ```
 
-`FIREBASE_CREDENTIALS_JSON` can stay `{}` locally — push notifications just won't fire,
-everything else works fine.
+Run
 
 ```bash
 python manage.py migrate
+
 python manage.py createsuperuser
+
 python manage.py runserver
 ```
 
-In two more terminals (same venv), for command polling / automation to work fully:
+Run Celery
 
 ```bash
 celery -A smartnest worker --loglevel=info
+
 celery -A smartnest beat --loglevel=info
 ```
 
-Backend is now at `http://localhost:8000`. Log into `/admin/` with your superuser to
-create a `Household`, a `Device` (note its generated `device_key`), and later an
-`RFIDCard` (used as the keypad PIN — see firmware section).
-
 ---
 
-## 4. Frontend setup (React)
+## 3️⃣ Frontend Setup
 
 ```bash
 cd web
+
 npm install
+
+npm run dev
 ```
 
-Create `web/.env`:
+Create
+
+```
+web/.env
+```
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-```bash
-npm run dev
-```
+---
 
-Dashboard is now at `http://localhost:5173`. Register an account, join/create the
-household you made in Django admin.
-
-### Mobile (Android, via Capacitor)
-
-The `web/android` folder is a Capacitor-wrapped build of the same React app.
+## 4️⃣ Android Build
 
 ```bash
 npm run build
-npx cap sync android
+
+npx cap sync
+
 npx cap open android
 ```
 
-This opens Android Studio — build/run from there onto a device or emulator. Point
-`VITE_API_BASE_URL` at your backend's real reachable address (not `localhost`, since
-that means "the phone itself" — use your machine's LAN IP or the deployed backend URL)
-before running `npm run build` for a mobile build.
+---
+
+## 5️⃣ Firmware
+
+ESP32
+
+```bash
+cp include/secrets.h.example include/secrets.h
+```
+
+Configure
+
+- WiFi SSID
+- Password
+- Backend URL
+- Device Key
+
+Upload using PlatformIO.
+
+Upload Arduino UNO firmware separately.
 
 ---
 
-## 5. Firmware setup (PlatformIO)
+# 📡 API Flow
 
-Each board is its own PlatformIO project — **open them in separate VS Code windows**,
-don't mix them into one project.
-
-### ESP32 (`firmware/esp32`)
-
-```bash
-cp firmware/esp32/include/secrets.h.example firmware/esp32/include/secrets.h
 ```
 
-Edit `secrets.h` with your WiFi credentials, your backend's URL, and the `device_key`
-from Django admin. Then open `firmware/esp32` in VS Code with PlatformIO, connect the
-ESP32, and Upload.
+Sensors
+↓
 
-### Arduino UNO (`firmware/uno`)
+ESP32
+↓
 
-No secrets needed — it only talks to the ESP32 over UART, never to WiFi/backend
-directly. Open `firmware/uno` in a separate VS Code window, connect the UNO, Upload.
+REST API
+↓
 
-### Hardware pin reference (ESP32)
+Django Backend
+↓
 
-| Function | Pin |
-|---|---|
-| DHT11 data | GPIO4 |
-| HC-SR04 TRIG / ECHO | GPIO5 / GPIO18 |
-| Garage servo | GPIO14 |
-| MQ-2 gas (analog) | GPIO34 |
-| Flame sensor | GPIO35 |
-| LDR (analog) | GPIO32 |
-| PIR motion | GPIO33 |
-| Fan (demo LED) | GPIO26 |
-| Light (demo LED) | GPIO27 |
+Database
+↓
+
+WebSocket
+↓
+
+Dashboard
+
+```
+
+Commands follow the reverse direction.
+
+---
+
+# 🔌 Hardware Connections
+
+| Component | Interface |
+|------------|----------|
+| DHT11 | GPIO4 |
+| MQ2 | GPIO34 |
+| PIR | GPIO33 |
+| Flame | GPIO35 |
+| LDR | GPIO32 |
+| Servo | GPIO14 |
+| Ultrasonic | GPIO5 / GPIO18 |
 | Buzzer | GPIO23 |
-| ADXL345 SDA / SCL | GPIO21 / GPIO22 |
-| UART to UNO: RX2 / TX2 | GPIO16 / GPIO17 |
-
-**ADXL345 (I2C):** VCC→3.3V, GND→GND, SDA→21, SCL→22, CS→3.3V, SDO→GND (CS/SDO
-floating is the most common reason `accel.begin()` silently fails).
-
-**UNO→ESP32 UART:** UNO is 5V logic, ESP32 RX is 3.3V-only — a voltage divider
-(1kΩ + 2kΩ) is required on the UNO TX → ESP32 RX line. ESP32 TX → UNO RX can connect
-directly. Common GND between both boards is required.
-
-### Hardware pin reference (UNO)
-
-| Function | Pins |
-|---|---|
-| UART to ESP32 (SoftwareSerial) | RX=D8, TX=D9 |
-| Keypad rows | D6, D7, D10, D13 |
-| Keypad columns | A0, A1, A4, A5 |
-
-### Setting the keypad PIN
-
-The keypad reuses the existing RFID-card access system — no separate "PIN" model.
-In Django admin (or the Security page in the dashboard), add an `RFIDCard` with
-`uid` set to whatever digits you want as the PIN (e.g. `1234`) and `is_active` checked.
-Typing that code on the keypad + `#` sends it to `/api/access/verify/`, which checks it
-against this same table.
+| UART | GPIO16 / GPIO17 |
 
 ---
 
-## 6. Testing without hardware
+# 📸 Screenshots
 
-Every sensor/actuator has a standalone PlatformIO test sketch used during development
-(LCD alone, keypad alone, DHT alone, LDR alone, etc.) — see the project's chat history
-for these; they're not committed since they're throwaway diagnostics, but the pattern
-is: strip `main.cpp` down to just the one sensor/library, print raw values to Serial,
-confirm before re-integrating into the full sketch.
-
-You can also test the backend independently of any hardware with `curl`:
-
-```bash
-curl -X POST http://localhost:8000/api/access/verify/ \
-  -H "Content-Type: application/json" \
-  -H "X-Device-Key: YOUR_DEVICE_KEY" \
-  -d '{"rfid_uid": "1234"}'
+```
+docs/
+├── dashboard.png
+├── mobile.png
+├── hardware.jpg
+├── architecture.png
 ```
 
+*(Add screenshots here for a more attractive repository.)*
+
 ---
 
-## 7. Notes
+# 🚀 Future Enhancements
 
-- The live deployment uses Railway (backend, Postgres, Redis) — see `backend/Procfile`
-  and `backend/runtime.txt`. Free-tier services on Railway/Render sleep after
-  inactivity and can take ~30-60s to wake on the first request after idling; if the
-  dashboard looks stuck on load, that's usually why.
-- `CORS_ALLOW_ALL_ORIGINS = True` is set for development convenience — tighten this
-  before any real production use.
+- AI-based anomaly detection
+- Voice Assistant Integration
+- MQTT Communication
+- Energy Consumption Analytics
+- Face Recognition Door Lock
+- Smart Scheduling
+- AI Recommendations
+- Smart Power Management
+
+---
+
+# 👨‍💻 Team
+
+| Name | Role |
+|------|------|
+| **Member 1 Aditya Pratap Singh** | Backend Development, Django, APIs & Database |
+| **Member 2 Divynashi Kesharwani** | Frontend Development, React & Mobile Application |
+| **Member 3 Jayant Singh** | IoT Development, ESP32, Arduino & Hardware Integration |
+
+---
+
+# 🤝 Contributing
+
+Contributions are welcome!
+
+1. Fork the repository
+
+2. Create a feature branch
+
+3. Commit your changes
+
+4. Push to your branch
+
+5. Open a Pull Request
+
+---
+
+# 📜 License
+
+This project is licensed under the MIT License.
+
+---
+
+<div align="center">
+
+### ⭐ If you like this project, don't forget to star the repository!
+
+Made with ❤️ by Team Nexus Dome
+
+</div>
