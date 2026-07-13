@@ -272,7 +272,8 @@ def rfid_card_list_create(request):
         cards = RFIDCard.objects.filter(household_id__in=user_households)
         return Response(RFIDCardSerializer(cards, many=True).data)
 
-    if request.data.get('household') not in user_households:
+    submitted_household = request.data.get('household')
+    if str(submitted_household) not in [str(h) for h in user_households]:
         return Response({"error": "Not your household"}, status=403)
     serializer = RFIDCardSerializer(data=request.data)
     if serializer.is_valid():
